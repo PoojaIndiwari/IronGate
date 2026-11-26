@@ -1,0 +1,32 @@
+# Day 1 afternoon — Policy 4: only images from the contract registry run.
+# Apply: kubectl apply -f policies/allowed-registry.yaml
+# Replace YOUR-REGISTRY with the registry from SIGNING-CONTRACT.md.
+# The second pattern (paynest:*) is for the laptop test only, so your
+# locally signed paynest:test1 image can run. Remove that line for the
+# final demo, so ONLY the contract registry is allowed.
+# Scoped to namespace paynest only.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: allowed-registry-only
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: allowed-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - paynest
+      validate:
+        message: "Images must come from the registry in the signing contract."
+        anyPattern:
+          - spec:
+              containers:
+                - image: "YOUR-REGISTRY/*"
+          - spec:
+              containers:
+                - image: "paynest:*"

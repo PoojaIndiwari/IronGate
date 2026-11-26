@@ -1,0 +1,39 @@
+# Day 1 afternoon — Policy 1: only signed images run in paynest.
+# Apply: kubectl apply -f policies/verify-signature.yaml
+# BEFORE you apply this, replace BOTH placeholders:
+#   1. YOUR-REGISTRY — the registry name from SIGNING-CONTRACT.md
+#      (for the laptop test, use the registry you push paynest:test1 to)
+#   2. The public key block — paste the whole contents of cosign.pub
+#      (the PUBLIC key only — never put cosign.key in this repo)
+# This uses Kyverno verifyImages with a Cosign key, the form in the
+# Kyverno/Cosign examples. If your installed Kyverno rejects the
+# "image:" / "key:" fields, tell Muse your Kyverno version and it will
+# convert this to the newer imageReferences / attestors form.
+# Scoped to namespace paynest only, so Kyverno/Falco system pods keep running.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signature
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: verify-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - paynest
+      verifyImages:
+        - image: "YOUR-REGISTRY/paynest:*"
+          key: |-
+            -----BEGIN PUBLIC KEY-----
+            PASTE-THE-WHOLE-CONTENTS-OF-cosign.pub-HERE
+            -----END PUBLIC KEY-----
+        - image: "paynest:*"
+          key: |-
+            -----BEGIN PUBLIC KEY-----
+            PASTE-THE-WHOLE-CONTENTS-OF-cosign.pub-HERE
+            -----END PUBLIC KEY-----

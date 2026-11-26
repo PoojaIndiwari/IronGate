@@ -1,0 +1,29 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: block-privileged
+spec:
+  validationActions:
+    - Deny
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: paynest
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - message: "Privileged containers are not allowed."
+      expression: >-
+        object.spec.containers.all(c, !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+    - message: "allowPrivilegeEscalation must be false."
+      expression: >-
+        object.spec.containers.all(c, !has(c.securityContext.allowPrivilegeEscalation) || c.securityContext.allowPrivilegeEscalation == false)
+    - message: "hostNetwork is not allowed."
+      expression: >-
+        !has(object.spec.hostNetwork) || object.spec.hostNetwork == false
+    - message: "hostPath volumes are not allowed."
+      expression: >-
+        !has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath))
