@@ -1,0 +1,28 @@
+name: IronGate CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PayNest checks
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Get the project files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the three PayNest tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run the four audit checks
+        run: python runtime/audit.py

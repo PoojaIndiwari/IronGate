@@ -1,0 +1,90 @@
+# PayNest is a one-container teaching service. The namespace can only run the
+# approved repository by digest. Extra container types can be added once they
+# have equivalent identity and attestation verification.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: irongate-source
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods", "pods/ephemeralcontainers"]
+        operations: ["CREATE", "UPDATE"]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c, c.image.matches('^__IMAGE_PATTERN__@sha256:[0-9a-f]{64}$'))
+      message: PayNest requires the approved repository and an immutable SHA-256 digest.
+    - expression: >-
+        (!has(object.spec.initContainers) || size(object.spec.initContainers) == 0) &&
+        (!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0)
+      message: The PayNest demo accepts regular application containers only.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: irongate-source
+spec:
+  policyName: irongate-source
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: paynest-demo
+---
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: irongate-proof
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 30
+  validationConfigurations:
+    mutateDigest: false
+    verifyDigest: true
+    required: true
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: paynest-demo
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+        operations: ["CREATE", "UPDATE"]
+  matchImageReferences:
+    - glob: "__IMAGE__*"
+  attestors:
+    - name: release
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: "__SIGNER__"
+        ctlog:
+          url: https://rekor.sigstore.dev
+  attestations:
+    - name: provenance
+      intoto:
+        type: https://slsa.dev/provenance/v1
+    - name: sbom
+      intoto:
+        type: https://spdx.dev/Document
+  validations:
+    - expression: >-
+        images.containers.all(i, verifyImageSignatures(i, [attestors.release]) > 0)
+      message: The PayNest release workflow must sign this image.
+    - expression: >-
+        images.containers.all(i, verifyAttestationSignatures(i, attestations.provenance, [attestors.release]) > 0 &&
+        extractPayload(i, attestations.provenance).predicate.buildDefinition.externalParameters.source == '__SOURCE__' &&
+        extractPayload(i, attestations.provenance).predicate.buildDefinition.externalParameters.ref == 'refs/heads/main' &&
+        extractPayload(i, attestations.provenance).predicate.runDetails.builder.id == '__SIGNER__')
+      message: A signed SLSA v1 build from the trusted repository and main workflow is required.
+    - expression: >-
+        images.containers.all(i, verifyAttestationSignatures(i, attestations.sbom, [attestors.release]) > 0 &&
+        extractPayload(i, attestations.sbom).predicate.spdxVersion.startsWith('SPDX-'))
+      message: A signed SPDX SBOM for this image is required.
