@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: paynest-demo
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paynest-normal-from-test-client
+  namespace: paynest-demo
+spec:
+  podSelector:
+    matchLabels:
+      app: paynest
+      irongate.io/network: normal
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paynest-test
+          podSelector:
+            matchLabels:
+              role: health-client
+      ports:
+        - protocol: TCP
+          port: 8080

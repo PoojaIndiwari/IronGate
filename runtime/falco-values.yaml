@@ -1,0 +1,12 @@
+driver:
+  kind: modern_ebpf
+falco:
+  json_output: true
+customRules:
+  irongate.yaml: |-
+    - rule: IronGate training marker read
+      desc: A container opened the harmless PayNest training marker for reading.
+      condition: container and open_read and fd.name = /app/IRONGATE_CANARY
+      output: Training marker read (name=%fd.name container=%container.id process=%proc.name namespace=%k8s.ns.name pod=%k8s.pod.name)
+      priority: NOTICE
+      tags: [irongate, training]

@@ -1,0 +1,4 @@
+{"case":"demo secret read denied","expected":"denied-secret-read","event":{"stage":"ResponseComplete","verb":"get","objectRef":{"namespace":"paynest-demo","resource":"secrets"},"responseStatus":{"code":403}}}
+{"case":"normal pod read","expected":null,"event":{"stage":"ResponseComplete","verb":"get","objectRef":{"namespace":"paynest-demo","resource":"pods"},"responseStatus":{"code":200}}}
+{"case":"unrelated namespace","expected":null,"event":{"stage":"ResponseComplete","verb":"get","objectRef":{"namespace":"training-other","resource":"secrets"},"responseStatus":{"code":403}}}
+{"case":"request still in progress","expected":null,"event":{"stage":"RequestReceived","verb":"get","objectRef":{"namespace":"paynest-demo","resource":"secrets"}}}

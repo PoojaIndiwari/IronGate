@@ -1,0 +1,98 @@
+name: IronGate CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PayNest checks
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Get the project files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the three PayNest tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run the four audit checks
+        run: python runtime/audit.py
+
+  secrets-scan:
+    name: Gitleaks secret scan
+    runs-on: windows-2022
+    timeout-minutes: 10
+
+    steps:
+      - name: Get the project and its Git history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download and verify Gitleaks
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "8.24.3"
+          $archive = "gitleaks_${version}_windows_x64.zip"
+          $checksums = "gitleaks_${version}_checksums.txt"
+          $folder = Join-Path $env:RUNNER_TEMP "gitleaks"
+          New-Item -ItemType Directory -Path $folder | Out-Null
+
+          gh release download "v$version" --repo gitleaks/gitleaks `
+            --pattern $archive --pattern $checksums --dir $folder
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Gitleaks download failed"
+          }
+
+          $zip = Join-Path $folder $archive
+          $checksumFile = Join-Path $folder $checksums
+          $pattern = '^(?<hash>[a-fA-F0-9]{64})\s+\*?' + [regex]::Escape($archive) + '$'
+          $entry = Select-String -Path $checksumFile -Pattern $pattern
+
+          if (-not $entry) {
+            throw "Checksum entry missing for $archive"
+          }
+
+          $expected = $entry.Matches[0].Groups['hash'].Value
+          $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
+
+          if ($actual -ne $expected) {
+            throw "Gitleaks checksum mismatch"
+          }
+
+          Expand-Archive -Path $zip -DestinationPath $folder
+          $folder >> $env:GITHUB_PATH
+
+      - name: Scan Git history for secrets
+        run: gitleaks git --redact --exit-code 1 .
+
+  source-scan:
+    name: Semgrep Python security scan
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Get the project files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Semgrep
+        run: python -m pip install semgrep
+
+      - name: Scan PayNest and the audit code
+        run: semgrep scan --config p/python --error --metrics=off app runtime

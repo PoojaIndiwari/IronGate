@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proof-check
+  namespace: paynest-demo
+  labels:
+    app: paynest
+    irongate.io/network: normal
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: paynest
+      image: __FULL_IMAGE__
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 30m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 96Mi

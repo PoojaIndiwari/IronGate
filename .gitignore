@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # .gitignore — IronGate Person B starter files
 # Never commit secrets or evidence.
 evidence/
@@ -5,3 +6,20 @@ cosign.key
 *.key
 *.pem
 .env
+=======
+# IronGate - merged .gitignore (Person B + repo)
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env*
+.venv/
+.terraform/
+*.tfstate
+*.tfplan
+*.pem
+*.key
+cosign.key
+evidence/
+local-output/
+*.log
