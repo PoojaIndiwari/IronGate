@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-# .gitignore — IronGate Person B starter files
-# Never commit secrets or evidence.
-evidence/
-cosign.key
-*.key
-*.pem
-.env
-=======
-@"
 # IronGate - merged .gitignore (Person B + repo)
 __pycache__/
 *.pyc
@@ -24,4 +14,3 @@ cosign.key
 evidence/
 local-output/
 *.log
-"@ | Out-File -Encoding utf8 .gitignore
