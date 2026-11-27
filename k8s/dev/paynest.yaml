@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paynest
+  namespace: paynest-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paynest
+  template:
+    metadata:
+      labels:
+        app: paynest
+        irongate.io/network: normal
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: paynest
+          image: paynest:week1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          resources:
+            requests:
+              cpu: 30m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 96Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paynest
+  namespace: paynest-dev
+spec:
+  selector:
+    app: paynest
+    irongate.io/network: normal
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
