@@ -1,21 +1,23 @@
-# Day 1 evening — 6 custom Falco rules for PayNest.
-# Uses the macros that ship with Falco's default rules
-# (spawned_process, container, shell_procs, open_write, open_read).
-# Load it through Helm, not with kubectl apply:
-#   helm upgrade falco falcosecurity/falco -n security \
-#     --set-file customRules.paynest-rules\\.yaml=falco/custom-rules.yaml
-#   (or paste this file under customRules: in your Falco values file)
-# Then restart / check: kubectl logs -n security -l app.kubernetes.io/name=falco
+# 6 custom Falco rules for PayNest.
+# Uses macros that ship with Falco's default rules
+# (spawned_process, container, open_write, open_read).
+# Load it through Helm, not with kubectl apply. Always repeat the driver setting,
+# because helm upgrade resets any value you do not pass again:
+#   helm upgrade falco falcosecurity/falco -n security --set driver.kind=modern_ebpf --set-file "customRules.paynest-rules\.yaml=falco/custom-rules.yaml"
+# Then check: kubectl logs -n security -l app.kubernetes.io/name=falco
 # If Falco reports a macro it does not know, your Falco version's
-# default rules differ — check the rule name in the log and tell Muse.
+# default rules differ. Check the rule name in the log.
 - list: paynest_namespaces
   items: [paynest, attack-test]
+
+- list: paynest_shells
+  items: [bash, sh, dash, zsh, ash, ksh, csh, tcsh, fish]
 
 - rule: Paynest Shell in Container
   desc: A shell was opened inside a PayNest pod (Execution, MITRE T1059)
   condition: >
     spawned_process and container
-    and proc.name in (shell_binaries)
+    and proc.name in (paynest_shells)
     and proc.tty != 0
     and k8s.ns.name in (paynest_namespaces)
   output: >
@@ -37,9 +39,10 @@
   tags: [container, network, mitre_credential_access, T1552]
 
 - rule: Paynest Write to System Folders
-  desc: A process wrote to /etc, /root or a binary folder (Persistence, MITRE T1543)
+  desc: A process wrote to /etc, /root or a binary folder (Persistence, MITRE T1543). Shell history files are excluded because every interactive shell writes them.
   condition: >
     open_write and container
+    and not fd.name endswith .bash_history
     and (fd.name startswith /etc or fd.name startswith /root
     or fd.name startswith /usr/bin or fd.name startswith /usr/sbin)
     and k8s.ns.name in (paynest_namespaces)
