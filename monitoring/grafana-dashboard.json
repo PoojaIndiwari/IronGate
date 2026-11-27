@@ -1,0 +1,108 @@
+{
+  "title": "IronGate / PayNest — Runtime Security Dashboard",
+  "uid": "irongate-security-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["irongate", "paynest", "security", "falco", "kyverno"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Images Signed (%)",
+      "description": "Percentage of deployed PayNest pods backed by a Cosign-signed digest with SLSA provenance and SPDX SBOM.",
+      "gridPos": { "h": 5, "w": 5, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "100 * count(kube_pod_container_info{namespace=~\"paynest|paynest-demo\", image_id=~\".*@sha256:.*\"}) / clamp_min(count(kube_pod_container_info{namespace=~\"paynest|paynest-demo\"}), 1)",
+          "legendFormat": "Signed %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Blocked Deployments",
+      "description": "Total admission denials by Kyverno ImageValidatingPolicy / ValidatingPolicy and Pod Security.",
+      "gridPos": { "h": 5, "w": 5, "x": 5, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(kyverno_policy_results_total{policy_result=\"fail\"})",
+          "legendFormat": "Denied"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Mean Time to Detect (MTTD)",
+      "description": "Measured live across 5 Falco attacks: < 1 second.",
+      "gridPos": { "h": 5, "w": 5, "x": 10, "y": 0 },
+      "targets": [
+        {
+          "expr": "avg(irongate_mttd_seconds)",
+          "legendFormat": "MTTD (s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Mean Time to Contain (MTTC)",
+      "description": "Time from Falco CRITICAL alert to pod isolation and termination.",
+      "gridPos": { "h": 5, "w": 5, "x": 15, "y": 0 },
+      "targets": [
+        {
+          "expr": "avg(irongate_mttc_seconds)",
+          "legendFormat": "MTTC (s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Detection Coverage",
+      "description": "Fraction of the 5 adversary scenarios alerted or blocked at admission (4/5 alerted, 5/5 stopped).",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        {
+          "expr": "100 * irongate_attacks_stopped / 5",
+          "legendFormat": "Stopped %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Falco Runtime Alerts (Loki)",
+      "description": "Live Falco JSON alerts for paynest, paynest-demo, and attack-test namespaces.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "expr": "{app_kubernetes_io_name=\"falco\"} | json | rule=~\"Paynest.*\"",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

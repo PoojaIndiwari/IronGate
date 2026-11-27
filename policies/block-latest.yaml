@@ -13,8 +13,10 @@ spec:
     - Deny
   matchConstraints:
     namespaceSelector:
-      matchLabels:
-        kubernetes.io/metadata.name: paynest
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [paynest, paynest-demo]
     resourceRules:
       - apiGroups: [""]
         apiVersions: ["v1"]

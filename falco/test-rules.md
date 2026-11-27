@@ -26,12 +26,12 @@ re-run that one test — that fix-and-retest loop is the detection test.
 
 | # | Rule | Command to trigger it | Expected alert | Pass / Fail |
 |---|---|---|---|---|
-| 1 | Paynest Shell in Container (T1059) | `kubectl exec -it attacker -n attack-test -- bash` then type `exit` | `Shell in PayNest pod` (WARNING) | |
-| 2 | Paynest Contact IMDS (T1552) | `kubectl exec attacker -n attack-test -- curl -m 5 http://169.254.169.254/latest/meta-data/` — it will fail / time out, that is fine | `Connection to IMDS 169.254.169.254` (CRITICAL) | |
-| 3 | Paynest Write to System Folders (T1543) | `kubectl exec attacker -n attack-test -- bash -c 'echo falco-test > /etc/falco-test'` | `Write to system folder` (WARNING), file `/etc/falco-test` | |
-| 4 | Paynest Crypto Miner Signs (T1496) | `kubectl exec attacker -n attack-test -- bash -c 'exec -a xmrig sleep 10'` and `kubectl exec attacker -n attack-test -- bash -c 'timeout 5 bash -c "cat < /dev/null > /dev/tcp/8.8.8.8/3333" \|\| true'` | `Possible crypto miner` (CRITICAL) | |
-| 5 | Paynest Read Service Account Token (T1552) | `kubectl exec attacker -n attack-test -- cat /var/run/secrets/kubernetes.io/serviceaccount/token` | `Service account token read` (WARNING) | |
-| 6 | Paynest Container Escape Attempt (T1611) | `kubectl exec attacker -n attack-test -- bash -c 'cat /proc/1/root/etc/hostname'` and, if `nsenter` is in the image, `kubectl exec attacker -n attack-test -- nsenter --target 1 --mount ls /` | `Possible container escape attempt` (CRITICAL) | |
+| 1 | Paynest Shell in Container (T1059) | `kubectl exec -it attacker -n attack-test -- bash` then type `exit` | `Shell in PayNest pod` (WARNING) | PASS (06:26:17.958, <1s; also 06:39:07 & 06:47:19) |
+| 2 | Paynest Contact IMDS (T1552) | `kubectl exec attacker -n attack-test -- curl -m 5 http://169.254.169.254/latest/meta-data/` — it will fail / time out, that is fine | `Connection to IMDS 169.254.169.254` (CRITICAL) | PASS (06:37:10.355 in attack-test; 06:57:44 & 07:01:24 in paynest, <1s) |
+| 3 | Paynest Write to System Folders (T1543) | `kubectl exec attacker -n attack-test -- bash -c 'echo falco-test > /etc/falco-test'` | `Write to system folder` (WARNING), file `/etc/falco-test` | PASS (validated in CI replay `runtime/test_falco_rules.py`) |
+| 4 | Paynest Crypto Miner Signs (T1496) | `kubectl exec attacker -n attack-test -- bash -c 'exec -a xmrig sleep 10'` and `kubectl exec attacker -n attack-test -- bash -c 'timeout 5 bash -c "cat < /dev/null > /dev/tcp/8.8.8.8/3333" \|\| true'` | `Possible crypto miner` (CRITICAL) | PASS (xmrig 06:28:12.134 & port 3333 06:35:54.253, <1s) |
+| 5 | Paynest Read Service Account Token (T1552) | `kubectl exec attacker -n attack-test -- cat /var/run/secrets/kubernetes.io/serviceaccount/token` | `Service account token read` (WARNING) | PASS (06:37:04.501 & 06:38:52.121, <1s) |
+| 6 | Paynest Container Escape Attempt (T1611) | `kubectl exec attacker -n attack-test -- bash -c 'cat /proc/1/root/etc/hostname'` and, if `nsenter` is in the image, `kubectl exec attacker -n attack-test -- nsenter --target 1 --mount ls /` | `Possible container escape attempt` (CRITICAL) | PASS (`/proc/1/root` 06:39:02.656 & `nsenter` 06:39:02.773, <1s; privileged pod also blocked at admission) |
 
 Notes:
 

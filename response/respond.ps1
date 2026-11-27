@@ -23,8 +23,8 @@ Write-Host "2. Removing the app label so allow NetworkPolicies stop matching thi
 kubectl label pod $PodName -n $Namespace app- --overwrite
 kubectl label pod $PodName -n $Namespace irongate.io/network- --overwrite 2>$null
 
-Write-Host "3. Applying isolate NetworkPolicy ..."
-kubectl apply -f (Join-Path $Root "networkpolicies\isolate.yaml")
+Write-Host "3. Applying isolate NetworkPolicy in namespace $Namespace ..."
+kubectl apply -n $Namespace -f (Join-Path $Root "networkpolicies\isolate.yaml")
 
 Write-Host "4. Saving evidence to evidence\ (UTF-8) ..."
 kubectl logs $PodName -n $Namespace | Out-File -Encoding utf8 -FilePath (Join-Path $EvidenceDir "$PodName-logs.txt")

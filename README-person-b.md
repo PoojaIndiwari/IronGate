@@ -22,11 +22,10 @@ it will not block anything, and you cannot create or update it.
 That is why the block-latest test failed at first, and why it
 passed once it was rewritten in the new format.
 
-New policy kinds in `policies/`:
-- `policies/block-latest.yaml` — ValidatingPolicy, Deny
-- `policies/block-privileged.yaml` — ValidatingPolicy, Deny
-- `policies/allowed-registry.yaml` — ValidatingPolicy, Deny
-- `policies/verify-signature.yaml` — ImageValidatingPolicy, Deny
+New policy kinds:
+- `policies/block-latest.yaml` — Kyverno `ValidatingPolicy` (Deny, scoped to `paynest` and `paynest-demo`)
+- `policies/block-privileged.yaml` — Kyverno `ValidatingPolicy` (Deny, scoped to `paynest` and `paynest-demo`)
+- `runtime/proof-policy.yaml.in` — Kubernetes `ValidatingAdmissionPolicy` (`irongate-source`) + Kyverno keyless `ImageValidatingPolicy` (`irongate-proof` verifying Cosign signature, SLSA v1 provenance, and SPDX SBOM in `paynest-demo`)
 
 If you already applied the old legacy policies, delete them first:
 ```
@@ -201,25 +200,23 @@ MITRE mapping (from falco/custom-rules.yaml — 6 rules now):
 | Read service-account token | T1552 Credential Access |
 | Container escape attempt | T1611 Privilege Escalation |
 
-Coverage table — fill in one row per attack:
+Coverage table — filled from live run (`evidence/falco-attacks.txt`, `evidence/attack3-escape-denied.txt`):
 | Attack | Rule | Alert fired? | Time to detect |
 |---|---|---|---|
-| 1 Reverse shell | Shell in container | | |
-| 2 Crypto miner | Crypto miner signs | | |
-| 3 Container escape | Blocked by admission (in paynest) + Container Escape Attempt (Falco) | | |
-| 4 RBAC abuse | Token / secret access | | |
-| 5 IMDS theft | Contact IMDS | | |
+| 1 Reverse shell | Shell in container (T1059) | Yes | < 1s (06:26:17.958) |
+| 2 Crypto miner | Crypto miner signs (T1496) | Yes (`xmrig` + port 3333) | < 1s (06:28:12.134) |
+| 3 Container escape | Blocked by admission (in `paynest`) + Container Escape Attempt (Falco T1611) | Blocked at admission; Falco escape rule also fired separately | < 1s (06:39:02.656) |
+| 4 RBAC / token abuse | Service account token read (T1552) + audit replay (`runtime/audit.py`) | Yes | < 1s (06:37:04.501) |
+| 5 IMDS theft | Contact IMDS (T1552) | Yes (`attack-test` + `paynest`) | < 1s (06:37:10.355 / 07:01:24.390) |
 
-5 numbers for the dashboard — see `dashboard-numbers.md` for
-where each number comes from (Kyverno rejection count, Falco
-alert timestamps, `respond.ps1` run log):
+5 numbers for the dashboard — see `dashboard-numbers.md` and `monitoring/grafana-dashboard.json`:
 | Number | Value |
 |---|---|
-| Images signed (%) | |
-| Blocked deployments | |
-| Mean time to detect | |
-| Mean time to contain | |
-| Detection coverage (alerts / 5) | |
+| Images signed (%) | 100% (1 signed digest deployed, 1 unsigned denied) |
+| Blocked deployments | 3 proven live (`block-latest`, Pod Security `restricted`, `irongate-source`) |
+| Mean time to detect | Under 1 second |
+| Mean time to contain | About 38 seconds (manual `respond.ps1`; automated Falco Talon rules in `response/falco-talon-rules.yaml`) |
+| Detection coverage (alerts / 5) | 4/5 alerted, 5/5 stopped (Attack 3 blocked before start) |
 
 ## If something breaks
 

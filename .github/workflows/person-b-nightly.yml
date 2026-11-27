@@ -1,0 +1,59 @@
+# Nightly runtime posture & detection coverage check — IronGate Person B
+# Runs on a nightly schedule (02:00 UTC) and on demand.
+# Validates detection-as-code fixtures, runs a Kubescape posture scan on
+# Kubernetes manifests, and publishes a coverage summary.
+name: person-b-nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-coverage-and-posture:
+    name: Nightly detection coverage & posture scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run detection-as-code suites
+        id: detections
+        run: |
+          set -euo pipefail
+          python3 runtime/audit.py | tee audit-results.txt
+          python3 runtime/test_falco_rules.py | tee falco-results.txt
+
+      - name: Install Kubescape
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
+          echo "$HOME/.kubescape/bin" >> "$GITHUB_PATH"
+
+      - name: Run Kubescape posture scan on manifests
+        run: |
+          kubescape scan k8s/ networkpolicies/ cluster/ --format pretty-printer || true
+
+      - name: Publish nightly coverage summary
+        if: always()
+        run: |
+          {
+            echo "## IronGate Person B — Nightly Detection & Posture Report"
+            echo ""
+            echo "### Kubernetes Audit Detection Replay"
+            echo '```'
+            cat audit-results.txt 2>/dev/null || echo "No audit output"
+            echo '```'
+            echo ""
+            echo "### Falco Rule Validation & Replay (6 MITRE ATT&CK Rules)"
+            echo '```'
+            cat falco-results.txt 2>/dev/null || echo "No Falco output"
+            echo '```'
+            echo ""
+            echo "Note: Prowler cloud posture checks are skipped in the laptop/CI-only build (no AWS account)."
+          } >> "$GITHUB_STEP_SUMMARY"

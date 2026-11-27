@@ -1,8 +1,6 @@
-# Day 1 afternoon / Day 2 — your signed test app.
+# Signed test app deployment in namespace paynest.
+# Uses the verified Cosign-signed release digest from SIGNING-CONTRACT.md.
 # Apply: kubectl apply -f app/paynest-test.yaml
-# Replace YOUR-REGISTRY with the registry from SIGNING-CONTRACT.md,
-# and :test1 with the tag you signed with Cosign.
-# Do NOT use :latest — Policy 2 blocks it.
 # The ServiceAccount has no token auto-mounted and no extra rights.
 apiVersion: v1
 kind: ServiceAccount
@@ -28,13 +26,19 @@ spec:
     spec:
       serviceAccountName: paynest-sa
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: paynest
-          image: YOUR-REGISTRY/paynest:test1
+          image: ghcr.io/poojaindiwari/irongate@sha256:19c63ca7bc3b224f95b925c1970cfb15c409fd45889e83f51fa20bbc113b5156
           ports:
             - containerPort: 8080
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL

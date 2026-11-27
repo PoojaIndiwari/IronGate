@@ -8,7 +8,7 @@
 # If Falco reports a macro it does not know, your Falco version's
 # default rules differ. Check the rule name in the log.
 - list: paynest_namespaces
-  items: [paynest, attack-test]
+  items: [paynest, paynest-demo, attack-test]
 
 - list: paynest_shells
   items: [bash, sh, dash, zsh, ash, ksh, csh, tcsh, fish]

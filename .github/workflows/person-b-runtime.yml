@@ -1,8 +1,8 @@
 # Person B runtime checks — IronGate
 # Runs on every push / pull request that touches the runtime half, and
 # on demand. No secrets, no registry access, no AWS.
-# It proves, on a fresh kind cluster, that Kyverno rejects the bad pods
-# and admits a good one. If any of the three checks fails, the job fails.
+# It validates detection-as-code rules and proves, on a fresh kind cluster,
+# that Kyverno rejects bad pods and admits a compliant pod.
 name: person-b-runtime
 
 on:
@@ -11,40 +11,71 @@ on:
       - "policies/**"
       - "cluster/**"
       - "networkpolicies/**"
+      - "falco/**"
+      - "runtime/**"
       - ".github/workflows/person-b-runtime.yml"
   pull_request:
     paths:
       - "policies/**"
       - "cluster/**"
       - "networkpolicies/**"
+      - "falco/**"
+      - "runtime/**"
       - ".github/workflows/person-b-runtime.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  runtime-checks:
+  detection-as-code:
+    name: Detection-as-code rule tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Replay Kubernetes audit detection fixtures
+        run: python3 runtime/audit.py
+
+      - name: Validate and replay Falco custom rules
+        run: python3 runtime/test_falco_rules.py
+
+  runtime-checks:
+    name: Admission control checks in kind
+    needs: detection-as-code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install kind
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          curl -fsSL -o ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
           kind version
 
       - name: Install kubectl
         run: |
-          curl -LO "https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl"
+          curl -fsSLO "https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/kubectl
           kubectl version --client
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v4.3.2
+        run: |
+          curl -fsSL https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz -o helm.tar.gz
+          tar -zxf helm.tar.gz
+          sudo mv linux-amd64/helm /usr/local/bin/helm
+          rm -rf helm.tar.gz linux-amd64
+          helm version
 
       - name: Create kind cluster
         run: |
@@ -52,10 +83,12 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
-      - name: Create paynest namespace (restricted)
+      - name: Apply namespaces and NetworkPolicies
         run: |
-          kubectl create namespace paynest
-          kubectl label namespace paynest pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/warn=restricted
+          kubectl apply -f cluster/namespaces.yaml
+          kubectl apply -f networkpolicies/default-deny.yaml
+          kubectl apply -f networkpolicies/allow-paynest.yaml
+          kubectl apply -f networkpolicies/allow-frontend-egress.yaml
 
       - name: Install Kyverno
         run: |
@@ -94,8 +127,6 @@ jobs:
                   capabilities:
                     drop: ["ALL"]
           EOF
-          # This pod passes Pod Security, so only Kyverno can block it.
-          # Expect kubectl to fail. If it succeeds, the policy is broken.
           if kubectl apply -f /tmp/test-latest.yaml; then
             echo "::error::FAIL: nginx:latest was admitted, block-latest did not deny it"
             exit 1
@@ -119,8 +150,6 @@ jobs:
                   privileged: true
                   allowPrivilegeEscalation: true
           EOF
-          # Blocked by Pod Security restricted and by the Kyverno
-          # block-privileged policy. Either way it must be denied.
           if kubectl apply -f /tmp/test-privileged.yaml; then
             echo "::error::FAIL: privileged pod was admitted"
             exit 1
