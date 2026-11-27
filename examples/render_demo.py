@@ -27,7 +27,10 @@ def render(repository, image, project):
     (destination / "admission.yaml").write_text(policy)
     (destination / "release.yaml").write_text(workload)
     namespace = (project / "k8s/dev/namespace.yaml").read_text()
-    (destination / "namespace.yaml").write_text(namespace.replace("paynest-dev", "paynest-demo"))
+    demo_namespace = namespace.replace("paynest-dev", "paynest-demo").rstrip()
+    # The health client lives in paynest-test (allowed in by runtime/demo-network.yaml).
+    test_namespace = namespace.replace("paynest-dev", "paynest-test").rstrip()
+    (destination / "namespace.yaml").write_text(demo_namespace + "\n---\n" + test_namespace + "\n")
     pod = (project / "runtime/check-pod.yaml.in").read_text().replace("__FULL_IMAGE__", image)
     (destination / "check-pod.yaml").write_text(pod)
     client = pod.replace("name: proof-check", "name: health-client").replace("namespace: paynest-demo", "namespace: paynest-test")
