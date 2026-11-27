@@ -1,3 +1,14 @@
+# Day 1 afternoon — Policy 3: no privileged containers, hostNetwork, hostPath.
+# Apply: kubectl apply -f policies/block-privileged.yaml
+# Scoped to namespace paynest only.
+# Kyverno v1.20 format: ValidatingPolicy (CEL).
+# NOTE: "run as non-root" is NOT enforced here on purpose — the nginx
+# test image needs to start as root. Add runAsNonRoot: true back only
+# if Person A's image is built to run as a non-root user.
+# Each validation is separate, so the error message tells you which
+# rule failed. A missing securityContext counts as safe for that
+# check — Pod Security "restricted" on the paynest namespace is
+# what forces the full securityContext on real pods.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
@@ -15,12 +26,18 @@ spec:
         operations: ["CREATE", "UPDATE"]
         resources: ["pods"]
   validations:
-    - message: "Privileged containers are not allowed."
+    - message: "Privileged containers are not allowed. Add securityContext: privileged: false, allowPrivilegeEscalation: false to the pod (paynest-test.yaml already has it)."
       expression: >-
-        object.spec.containers.all(c, !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+        object.spec.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
+    - message: "Privileged init containers are not allowed."
+      expression: >-
+        !has(object.spec.initContainers) || object.spec.initContainers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)
     - message: "allowPrivilegeEscalation must be false."
       expression: >-
-        object.spec.containers.all(c, !has(c.securityContext.allowPrivilegeEscalation) || c.securityContext.allowPrivilegeEscalation == false)
+        object.spec.containers.all(c, !has(c.securityContext) || !has(c.securityContext.allowPrivilegeEscalation) || c.securityContext.allowPrivilegeEscalation == false)
+    - message: "allowPrivilegeEscalation must be false on init containers."
+      expression: >-
+        !has(object.spec.initContainers) || object.spec.initContainers.all(c, !has(c.securityContext) || !has(c.securityContext.allowPrivilegeEscalation) || c.securityContext.allowPrivilegeEscalation == false)
     - message: "hostNetwork is not allowed."
       expression: >-
         !has(object.spec.hostNetwork) || object.spec.hostNetwork == false

@@ -1,2 +1,7 @@
-﻿cosign.key
+# .gitignore — IronGate Person B starter files
+# Never commit secrets or evidence.
+evidence/
+cosign.key
 *.key
+*.pem
+.env

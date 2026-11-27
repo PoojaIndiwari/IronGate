@@ -1,0 +1,160 @@
+# Person B runtime checks — IronGate
+# Runs on every push / pull request that touches the runtime half, and
+# on demand. No secrets, no registry access, no AWS.
+# It proves, on a fresh kind cluster, that Kyverno rejects the bad pods
+# and admits a good one. If any of the three checks fails, the job fails.
+name: person-b-runtime
+
+on:
+  push:
+    paths:
+      - "policies/**"
+      - "cluster/**"
+      - "networkpolicies/**"
+      - ".github/workflows/person-b-runtime.yml"
+  pull_request:
+    paths:
+      - "policies/**"
+      - "cluster/**"
+      - "networkpolicies/**"
+      - ".github/workflows/person-b-runtime.yml"
+  workflow_dispatch:
+
+jobs:
+  runtime-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.3.2
+
+      - name: Create kind cluster
+        run: |
+          kind create cluster --name irongate --wait 120s
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create paynest namespace (restricted)
+        run: |
+          kubectl create namespace paynest
+          kubectl label namespace paynest pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/warn=restricted
+
+      - name: Install Kyverno
+        run: |
+          helm repo add kyverno https://kyverno.github.io/kyverno/
+          helm repo update
+          helm install kyverno kyverno/kyverno -n security --create-namespace --wait --timeout 5m
+          kubectl get pods -n security
+          kubectl get validatingpolicies
+
+      - name: Apply Person B policies
+        run: |
+          kubectl apply -f policies/block-latest.yaml
+          kubectl apply -f policies/block-privileged.yaml
+          sleep 20
+          kubectl get validatingpolicies
+
+      - name: Check 1 — nginx:latest must be denied
+        run: |
+          cat <<'EOF' > /tmp/test-latest.yaml
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-latest
+            namespace: paynest
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - name: test
+                image: nginx:latest
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  runAsNonRoot: true
+                  capabilities:
+                    drop: ["ALL"]
+          EOF
+          # This pod passes Pod Security, so only Kyverno can block it.
+          # Expect kubectl to fail. If it succeeds, the policy is broken.
+          if kubectl apply -f /tmp/test-latest.yaml; then
+            echo "::error::FAIL: nginx:latest was admitted, block-latest did not deny it"
+            exit 1
+          else
+            echo "PASS: nginx:latest was denied as expected"
+          fi
+
+      - name: Check 2 — privileged pod must be denied
+        run: |
+          cat <<'EOF' > /tmp/test-privileged.yaml
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-privileged
+            namespace: paynest
+          spec:
+            containers:
+              - name: test
+                image: nginxinc/nginx-unprivileged:1.27-alpine
+                securityContext:
+                  privileged: true
+                  allowPrivilegeEscalation: true
+          EOF
+          # Blocked by Pod Security restricted and by the Kyverno
+          # block-privileged policy. Either way it must be denied.
+          if kubectl apply -f /tmp/test-privileged.yaml; then
+            echo "::error::FAIL: privileged pod was admitted"
+            exit 1
+          else
+            echo "PASS: privileged pod was denied as expected"
+          fi
+
+      - name: Check 3 — a good pod must be created and run
+        run: |
+          cat <<'EOF' > /tmp/test-good.yaml
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-good
+            namespace: paynest
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - name: test
+                image: nginxinc/nginx-unprivileged:1.27-alpine
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  runAsNonRoot: true
+                  capabilities:
+                    drop: ["ALL"]
+          EOF
+          kubectl apply -f /tmp/test-good.yaml
+          kubectl wait --for=condition=Ready pod/test-good -n paynest --timeout 120s
+          kubectl get pod test-good -n paynest
+          echo "PASS: good pod runs"
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name irongate || true

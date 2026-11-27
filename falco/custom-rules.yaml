@@ -1,4 +1,4 @@
-# Day 1 evening — 5 custom Falco rules for PayNest.
+# Day 1 evening — 6 custom Falco rules for PayNest.
 # Uses the macros that ship with Falco's default rules
 # (spawned_process, container, shell_procs, open_write, open_read).
 # Load it through Helm, not with kubectl apply:
@@ -72,3 +72,16 @@
     file=%fd.name cmdline=%proc.cmdline)
   priority: WARNING
   tags: [container, filesystem, mitre_credential_access, T1552]
+
+- rule: Paynest Container Escape Attempt
+  desc: A process tried to break out of a container — nsenter/unshare, or reading /proc/1/root (Privilege Escalation, MITRE T1611)
+  condition: >
+    container and k8s.ns.name in (paynest_namespaces)
+    and ((spawned_process and proc.name in (nsenter, unshare))
+    or (open_read and fd.name startswith /proc/1/root)
+    or (spawned_process and proc.cmdline contains "nsenter"))
+  output: >
+    Possible container escape attempt (user=%user.name ns=%k8s.ns.name pod=%k8s.pod.name
+    proc=%proc.name cmdline=%proc.cmdline file=%fd.name)
+  priority: CRITICAL
+  tags: [container, mitre_privilege_escalation, T1611]

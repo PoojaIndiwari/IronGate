@@ -1,3 +1,9 @@
+# Day 1 afternoon — Policy 2: no :latest tag.
+# Apply: kubectl apply -f policies/block-latest.yaml
+# Scoped to namespace paynest only.
+# Kyverno v1.20 format: ValidatingPolicy (CEL). PROVEN on 2026-11-26:
+# kubectl apply -f test-latest.yaml was denied with
+# "Images must not use the :latest tag. Use a fixed version tag."
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:

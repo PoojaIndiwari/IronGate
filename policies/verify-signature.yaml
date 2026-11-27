@@ -1,39 +1,52 @@
 # Day 1 afternoon — Policy 1: only signed images run in paynest.
-# Apply: kubectl apply -f policies/verify-signature.yaml
-# BEFORE you apply this, replace BOTH placeholders:
-#   1. YOUR-REGISTRY — the registry name from SIGNING-CONTRACT.md
-#      (for the laptop test, use the registry you push paynest:test1 to)
-#   2. The public key block — paste the whole contents of cosign.pub
-#      (the PUBLIC key only — never put cosign.key in this repo)
-# This uses Kyverno verifyImages with a Cosign key, the form in the
-# Kyverno/Cosign examples. If your installed Kyverno rejects the
-# "image:" / "key:" fields, tell Muse your Kyverno version and it will
-# convert this to the newer imageReferences / attestors form.
+# DO NOT APPLY THIS YET. Read this whole file first.
+# Kyverno v1.20 format: ImageValidatingPolicy (CEL).
 # Scoped to namespace paynest only, so Kyverno/Falco system pods keep running.
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+#
+# BEFORE you apply this, do ALL of these:
+#   1. Generate a Cosign key pair (cosign generate-key-pair) and
+#      sign your test image, OR get the public key from Person A.
+#      Replace YOUR-REGISTRY below with the registry from
+#      SIGNING-CONTRACT.md (for the laptop test, the registry you
+#      push paynest:test1 to).
+#   2. Replace PASTE-THE-WHOLE-CONTENTS-OF-cosign.pub-HERE below
+#      with the whole contents of cosign.pub
+#      (the PUBLIC key only — never put cosign.key, the private
+#      key, in this repo or in this file).
+#   3. Push and sign the exact image name + tag you will deploy.
+#      An unsigned image, or a signature for a different tag, will
+#      be blocked — that is Scenario 2, and it is the point.
+# If you apply this file with the placeholders still in it, every
+# paynest pod will be blocked, including your good test image.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
 metadata:
   name: verify-image-signature
 spec:
-  validationFailureAction: Enforce
-  background: false
-  rules:
-    - name: verify-signature
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - paynest
-      verifyImages:
-        - image: "YOUR-REGISTRY/paynest:*"
-          key: |-
+  validationActions:
+    - Deny
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: paynest
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: "YOUR-REGISTRY/paynest:*"
+    - glob: "paynest:*"
+  attestors:
+    - name: cosign
+      cosign:
+        key:
+          data: |-
             -----BEGIN PUBLIC KEY-----
             PASTE-THE-WHOLE-CONTENTS-OF-cosign.pub-HERE
             -----END PUBLIC KEY-----
-        - image: "paynest:*"
-          key: |-
-            -----BEGIN PUBLIC KEY-----
-            PASTE-THE-WHOLE-CONTENTS-OF-cosign.pub-HERE
-            -----END PUBLIC KEY-----
+  validations:
+    - message: "Image must be signed with the Cosign key in the signing contract."
+      expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.cosign])).all(e, e > 0)
