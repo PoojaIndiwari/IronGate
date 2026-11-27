@@ -1,4 +1,4 @@
-# IronGate — Person B starter files (2-day, laptop only)
+# IronGate — Part B
 
 Copy this whole folder into VS Code as `irongate-person-b`.
 It matches the 2-day guide exactly: same file names, same order.
@@ -235,4 +235,3 @@ Coverage table — filled from live run (`evidence/falco-attacks.txt`, `evidence
 - Quarantined pod can still talk: check the `app` label was
   removed (`kubectl get pod <name> -n paynest --show-labels`).
 - Prowler is skipped on purpose: laptop-only build, no AWS account.
-  Write that one line in your README.
