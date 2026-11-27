@@ -1,0 +1,60 @@
+# Day 1 morning — open only what PayNest needs.
+# Apply: kubectl apply -f networkpolicies/allow-paynest.yaml
+# Labels must match your pods: app=paynest-frontend / paynest-backend / paynest-db.
+# DNS (port 53 to kube-dns) is allowed so pods can still resolve names.
+# Nothing is allowed to 169.254.169.254 (IMDS) — that is Scenario 3.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: paynest
+spec:
+  podSelector:
+    matchLabels:
+      app: paynest-backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: paynest-frontend
+      ports:
+        - port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: paynest-db
+      ports:
+        - port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-db
+  namespace: paynest
+spec:
+  podSelector:
+    matchLabels:
+      app: paynest-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: paynest-backend
+      ports:
+        - port: 5432

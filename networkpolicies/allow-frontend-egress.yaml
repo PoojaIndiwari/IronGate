@@ -1,0 +1,39 @@
+# Day 1 morning — frontend egress. Apply after default-deny.yaml.
+# Apply: kubectl apply -f networkpolicies/allow-frontend-egress.yaml
+# Why this file exists: default-deny blocks ALL egress from every pod in
+# paynest, including the frontend. allow-paynest.yaml only gives the
+# BACKEND an egress rule (to the db, plus DNS). Nothing allows the
+# frontend to talk out, so paynest-frontend could not reach
+# paynest-backend on 8080 at all.
+# This policy selects the frontend pods and allows them:
+#   - egress to paynest-backend on TCP 8080
+#   - DNS to kube-system on UDP/TCP 53 (so names still resolve)
+# Nothing else is allowed out of the frontend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: paynest
+spec:
+  podSelector:
+    matchLabels:
+      app: paynest-frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: paynest-backend
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

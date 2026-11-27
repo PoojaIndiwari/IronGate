@@ -1,14 +1,16 @@
+# IronGate - merged .gitignore (Person B + repo)
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
 .env
-.env.*
-!.env.example
+.env*
+.venv/
 .terraform/
 *.tfstate
-*.tfstate.*
 *.tfplan
-plan.json
-crash.log
 *.pem
 *.key
+cosign.key
+evidence/
 local-output/
+*.log

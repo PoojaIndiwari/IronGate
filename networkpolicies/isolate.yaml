@@ -1,0 +1,14 @@
+# Day 2 afternoon — quarantine policy. No ingress, no egress.
+# Applied by response/respond.ps1 (with -n <Namespace>) after it labels a pod quarantine=true.
+# Apply by hand: kubectl apply -n paynest -f networkpolicies/isolate.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-quarantined
+spec:
+  podSelector:
+    matchLabels:
+      quarantine: "true"
+  policyTypes:
+    - Ingress
+    - Egress

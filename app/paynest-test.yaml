@@ -1,0 +1,44 @@
+# Signed test app deployment in namespace paynest.
+# Uses the verified Cosign-signed release digest from SIGNING-CONTRACT.md.
+# Apply: kubectl apply -f app/paynest-test.yaml
+# The ServiceAccount has no token auto-mounted and no extra rights.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: paynest-sa
+  namespace: paynest
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paynest-test
+  namespace: paynest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paynest-backend
+  template:
+    metadata:
+      labels:
+        app: paynest-backend
+    spec:
+      serviceAccountName: paynest-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: paynest
+          image: ghcr.io/poojaindiwari/irongate@sha256:19c63ca7bc3b224f95b925c1970cfb15c409fd45889e83f51fa20bbc113b5156
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

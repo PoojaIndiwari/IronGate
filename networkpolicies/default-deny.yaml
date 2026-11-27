@@ -1,0 +1,13 @@
+# Day 1 morning — default deny in paynest.
+# Apply: kubectl apply -f networkpolicies/default-deny.yaml
+# Nothing talks to anything until allow-paynest.yaml opens a path.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: paynest
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

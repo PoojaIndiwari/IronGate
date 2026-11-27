@@ -1,0 +1,48 @@
+# Automated event-driven response rules for Falco Talon (Section 5.5).
+# Triggers automatically when CRITICAL PayNest Falco rules fire in paynest or paynest-demo.
+# Local laptop alternative (when Falco Talon is not deployed): .\response\respond.ps1
+
+- action: Label pod as quarantined
+  actionner: kubernetes:label
+  parameters:
+    labels:
+      quarantine: "true"
+      app: ""
+      irongate.io/network: ""
+
+- action: Isolate pod with NetworkPolicy
+  actionner: kubernetes:networkpolicy
+  parameters:
+    allow: []
+
+- action: Terminate compromised pod
+  actionner: kubernetes:terminate
+  parameters:
+    ignoreDaemonsets: true
+    ignoreStatefulsets: false
+    gracePeriodSeconds: 0
+
+- rule: Quarantine and terminate pod on IMDS access (Scenario 3)
+  match:
+    rules:
+      - Paynest Contact IMDS
+    output_fields:
+      - k8s.ns.name=paynest
+      - k8s.ns.name=paynest-demo
+  actions:
+    - action: Label pod as quarantined
+    - action: Isolate pod with NetworkPolicy
+    - action: Terminate compromised pod
+
+- rule: Quarantine and terminate pod on Crypto Miner or Container Escape
+  match:
+    rules:
+      - Paynest Crypto Miner Signs
+      - Paynest Container Escape Attempt
+    output_fields:
+      - k8s.ns.name=paynest
+      - k8s.ns.name=paynest-demo
+  actions:
+    - action: Label pod as quarantined
+    - action: Isolate pod with NetworkPolicy
+    - action: Terminate compromised pod
