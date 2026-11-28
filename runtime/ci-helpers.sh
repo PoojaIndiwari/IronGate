@@ -43,7 +43,28 @@ install_kyverno() {
   fi
   echo "Installing Kyverno chart ${chart} (app line ${KYVERNO_APP_LINE}.x)"
   helm install kyverno kyverno/kyverno --version "$chart" -n security --create-namespace --wait --timeout 5m
+  kubectl rollout status deployment/kyverno-admission-controller -n security --timeout=120s
+  # Wait for kyverno-svc endpoints so policy-validation webhook calls do not race kube-proxy.
+  for _ in $(seq 1 20); do
+    if [[ -n "$(kubectl get endpoints kyverno-svc -n security -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)" ]]; then
+      break
+    fi
+    sleep 2
+  done
   echo "- Kyverno chart: \`${chart}\`" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+}
+
+# apply_retry FILE: retry kubectl apply briefly in case Kyverno's policy webhook is still warming up.
+apply_retry() {
+  local file="$1"
+  for i in $(seq 1 10); do
+    if kubectl apply -f "$file"; then
+      return 0
+    fi
+    echo "Retrying kubectl apply -f $file ($i/10)..."
+    sleep 3
+  done
+  kubectl apply -f "$file"
 }
 
 # wait_ready KIND NAME [SECONDS]: poll readiness instead of sleeping and hoping.

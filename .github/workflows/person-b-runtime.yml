@@ -86,8 +86,8 @@ jobs:
       - name: Apply Person B policies and wait until they are ready
         run: |
           source runtime/ci-helpers.sh
-          kubectl apply -f policies/block-latest.yaml
-          kubectl apply -f policies/block-privileged.yaml
+          apply_retry policies/block-latest.yaml
+          apply_retry policies/block-privileged.yaml
           wait_ready validatingpolicy block-latest-tag
           wait_ready validatingpolicy block-privileged
           # The webhook can lag the status flag by a moment: prove a denial, not a flag.
@@ -240,7 +240,7 @@ jobs:
           source runtime/ci-helpers.sh
           python3 examples/render_demo.py "$REPO" "$IMAGE"
           kubectl apply -f local-output/namespace.yaml
-          kubectl apply -f local-output/admission.yaml
+          apply_retry local-output/admission.yaml
           wait_ready imagevalidatingpolicy irongate-proof
           # Server-side dry run: the admission webhooks run, nothing is scheduled or pulled.
           # If this fails with a registry error, the GHCR package is private: make it public.
@@ -271,7 +271,7 @@ jobs:
           [[ "$unsigned" =~ ^[a-z0-9./-]+@sha256:[0-9a-f]{64}$ ]]
           kubectl delete -f local-output/admission.yaml --ignore-not-found
           python3 examples/render_demo.py "$REPO" "$unsigned"
-          kubectl apply -f local-output/admission.yaml
+          apply_retry local-output/admission.yaml
           wait_ready imagevalidatingpolicy irongate-proof
           # Give kube-apiserver's ValidatingAdmissionPolicy cache a moment to sync the recreated irongate-source.
           sleep 5
