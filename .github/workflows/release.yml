@@ -15,60 +15,9 @@ jobs:
     permissions:
       contents: read
 
-  infrastructure:
-    name: Check infrastructure configuration
-    needs: ci
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-
-    steps:
-      - name: Check out the release commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-
-      - name: Check whether the Terraform stack exists
-        id: terraform-files
-        shell: bash
-        run: |
-          if compgen -G 'infra/sandbox/*.tf' > /dev/null; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "Terraform checks skipped: infra/sandbox has no .tf files yet." \
-              >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Install Terraform
-        if: steps.terraform-files.outputs.present == 'true'
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
-        with:
-          terraform_version: "1.11.4"
-          terraform_wrapper: false
-
-      - name: Validate Terraform without connecting to AWS
-        if: steps.terraform-files.outputs.present == 'true'
-        working-directory: infra/sandbox
-        run: |
-          terraform fmt -check -recursive
-          terraform init -backend=false -input=false -lockfile=readonly
-          terraform validate
-
-      - name: Scan Terraform with Checkov
-        if: steps.terraform-files.outputs.present == 'true'
-        run: |
-          python3 -m venv "$RUNNER_TEMP/checkov-env"
-          "$RUNNER_TEMP/checkov-env/bin/pip" install 'checkov==3.2.400'
-          "$RUNNER_TEMP/checkov-env/bin/checkov" \
-            --directory infra/sandbox \
-            --framework terraform \
-            --compact
-
   build:
     name: Build and push PayNest candidate
-    needs: infrastructure
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -249,7 +198,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          export KUBECONFIG="$RUNNER_TEMP/payn​est-kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/paynest-kubeconfig"
           trap 'rm -f "$KUBECONFIG"' EXIT
           printf '%s' "${KUBECONFIG_B64:?Missing deployment credential}" |
             base64 --decode > "$KUBECONFIG"

@@ -42,5 +42,5 @@ signer requires peer review.
 | Software bill of materials | Passed | The signed SPDX 2.3 attestation listed 31 packages. |
 | Deployment of approved digest | Passed | The `paynest` and `proof-check` Pods were both `1/1` and Running in `paynest-demo`. The PayNest service on port `8080` returned `{"status":"ok"}` from `/health`. |
 | Tag-only image | Denied as expected | `proof-check-unsigned` used `ghcr.io/poojaindiwari/irongate:latest`. Policy `irongate-source` denied it with the message “PayNest requires the approved repository and an immutable SHA-256 digest.” |
-| Unsigned image referenced by digest | Covered in CI, live run pending | The `signature-gate` job in `person-b-runtime.yml` uses an unsigned public digest as the approved repository and expects `irongate-proof` to deny it. Record the first green run URL here. |
+| Unsigned image referenced by digest | Pending | Use a distinct, existing unsigned digest from the approved repository. Record the policy name and its signature-verification denial. |
 | Missing attestation, wrong signer, or unapproved registry | Pending | Record a separate admission result for each case when tested. |
