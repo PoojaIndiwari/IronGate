@@ -273,6 +273,8 @@ jobs:
           python3 examples/render_demo.py "$REPO" "$unsigned"
           kubectl apply -f local-output/admission.yaml
           wait_ready imagevalidatingpolicy irongate-proof
+          # Give kube-apiserver's ValidatingAdmissionPolicy cache a moment to sync the recreated irongate-source.
+          sleep 5
           sed -i 's/name: proof-check/name: proof-check-unsigned/' local-output/check-pod.yaml
           expect_denied local-output/check-pod.yaml "must sign this image||no signatures||no matching signatures||failed to verify" --dry-run=server
 
