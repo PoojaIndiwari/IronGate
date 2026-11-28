@@ -1,0 +1,63 @@
+name: IronGate Policy Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  policy-checks:
+    name: Check Kubernetes and Terraform policies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      CONFTEST_IMAGE: openpolicyagent/conftest@sha256:6182c0c61e83ae6522ed29e5084ac5cce4c88cd0aa26ffb1c6fc57bb34e9daa9
+
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Test Kubernetes and Terraform policies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_conftest() {
+            docker run --rm \
+              --mount "type=bind,source=$GITHUB_WORKSPACE,target=/project,readonly" \
+              --workdir /project \
+              "$CONFTEST_IMAGE" test "$@"
+          }
+
+          expect_denial() {
+            local policy="$1" fixture="$2" expected="$3"
+            local report="$RUNNER_TEMP/conftest-denial.json"
+            local status=0
+
+            run_conftest --policy "$policy" --output json "$fixture" > "$report" || status=$?
+            cat "$report"
+
+            if [[ "$status" -ne 1 ]]; then
+              echo "::error::Expected a policy denial for $fixture, got exit code $status"
+              return 1
+            fi
+
+            jq -e --arg expected "$expected" \
+              '[.[] | .failures[]?.msg] == [$expected]' "$report"
+          }
+
+          # These configurations must pass.
+          run_conftest --policy policy/k8s k8s/dev/paynest.yaml
+          run_conftest --policy policy/terraform fixtures/terraform/allowed.json
+
+          # These fixtures must be rejected for the specific reason we tested locally.
+          expect_denial policy/k8s fixtures/k8s/denied.yaml \
+            "paynest must set allowPrivilegeEscalation to false"
+
+          expect_denial policy/terraform fixtures/terraform/denied.json \
+            "aws_instance.demo must require IMDSv2"
