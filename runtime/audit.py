@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 READ_VERBS = {"get", "list", "watch"}
+NAMESPACES = {"paynest", "paynest-demo"}
+# Control-plane identities read Secrets constantly; reporting them is only noise.
+IGNORED_USERS = {"system:kube-controller-manager", "system:apiserver"}
 
 
 def classify(event):
@@ -11,7 +14,7 @@ def classify(event):
     if (
         event.get("stage") != "ResponseComplete"
         or event.get("verb") not in READ_VERBS
-        or target.get("namespace") != "paynest-demo"
+        or target.get("namespace") not in NAMESPACES
         or target.get("resource") != "secrets"
     ):
         return None
@@ -19,8 +22,9 @@ def classify(event):
     if code == 403:
         return "denied-secret-read"
     if code == 200:
-        # Successful reads are informational: review who read which Secret.
-        return "allowed-secret-read"
+        if event.get("user", {}).get("username") in IGNORED_USERS:
+            return None
+        return "successful-secret-read"
     return None
 
 
