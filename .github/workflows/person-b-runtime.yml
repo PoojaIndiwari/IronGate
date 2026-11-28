@@ -146,7 +146,6 @@ jobs:
                 image: nginxinc/nginx-unprivileged:1.27-alpine
                 securityContext:
                   privileged: true
-                  allowPrivilegeEscalation: false
           EOF
           expect_denied /tmp/test-privileged.yaml "Privileged containers are not allowed"
           cat <<'EOF' > /tmp/test-hostpid.yaml
