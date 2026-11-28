@@ -1,0 +1,1 @@
+{"resource_changes":[{"address":"aws_instance.demo","type":"aws_instance","change":{"actions":["create"],"after":{"metadata_options":[{"http_tokens":"optional"}]}}}]}
