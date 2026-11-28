@@ -198,7 +198,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          export KUBECONFIG="$RUNNER_TEMP/payn​est-kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/paynest-kubeconfig"
           trap 'rm -f "$KUBECONFIG"' EXIT
           printf '%s' "${KUBECONFIG_B64:?Missing deployment credential}" |
             base64 --decode > "$KUBECONFIG"
