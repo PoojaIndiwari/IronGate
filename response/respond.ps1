@@ -36,8 +36,9 @@ Write-Host "5. Killing pod $PodName ..."
 kubectl delete pod $PodName -n $Namespace
 
 $Elapsed = [math]::Round(((Get-Date) - $Start).TotalSeconds, 1)
-Write-Host "Containment took $Elapsed seconds (label to pod deleted)."
-# Append the measured time so MTTC can be averaged over several real runs.
-"$((Get-Date).ToString('s')),$PodName,$Namespace,$Elapsed" | Out-File -Append -Encoding utf8 -FilePath (Join-Path $EvidenceDir "mttc-runs.csv")
+Write-Host "Script runtime: $Elapsed seconds (first label to pod deleted). This is NOT MTTC."
+Write-Host "MTTC = alert time to pod deleted. Note the alert time yourself and subtract it from the delete time."
+# script-runtime.csv holds script runtimes only. Never average these with alert-to-delete MTTC figures.
+"$((Get-Date).ToString('s')),$PodName,$Namespace,$Elapsed" | Out-File -Append -Encoding utf8 -FilePath (Join-Path $EvidenceDir "script-runtime.csv")
 Write-Host "Done. Evidence saved in evidence\. Now rotate the exposed test secret by hand."
 Write-Host "Do NOT commit evidence\ - it can contain secrets. See .gitignore."
