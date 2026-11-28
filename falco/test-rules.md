@@ -28,13 +28,23 @@ re-run that one test — that fix-and-retest loop is the detection test.
 |---|---|---|---|---|
 | 1 | Paynest Shell in Container (T1059) | `kubectl exec -it attacker -n attack-test -- bash` then type `exit` | `Shell in PayNest pod` (WARNING) | PASS (06:26:17.958, <1s; also 06:39:07 & 06:47:19) |
 | 2 | Paynest Contact IMDS (T1552) | `kubectl exec attacker -n attack-test -- curl -m 5 http://169.254.169.254/latest/meta-data/` — it will fail / time out, that is fine | `Connection to IMDS 169.254.169.254` (CRITICAL) | PASS (06:37:10.355 in attack-test; 06:57:44 & 07:01:24 in paynest, <1s) |
+| 2b | Paynest Contact IMDS, exec half (T1552) | any tool, in `paynest`: `kubectl exec imds-test -n paynest -- sh -c 'wget -T 3 -O- http://169.254.169.254/ \|\| true'`, then `... -- sh -c 'nc -w 3 169.254.169.254 80 \|\| true'`, then (image with bash) `... -- bash -c 'timeout 5 bash -c \"cat < /dev/null > /dev/tcp/169.254.169.254/80\" \|\| true'` | `Connection to IMDS` (CRITICAL) with `proc=wget` / `nc` / `bash` and `ip=<NA>` | NOT YET RUN LIVE. Replay-tested only (`runtime/falco-cases.jsonl`). Fill in after a live run. |
 | 3 | Paynest Write to System Folders (T1543) | `kubectl exec attacker -n attack-test -- bash -c 'echo falco-test > /etc/falco-test'` | `Write to system folder` (WARNING), file `/etc/falco-test` | PASS (validated in CI replay `runtime/test_falco_rules.py`) |
-| 4 | Paynest Crypto Miner Signs (T1496) | `kubectl exec attacker -n attack-test -- bash -c 'exec -a xmrig sleep 10'` and `kubectl exec attacker -n attack-test -- bash -c 'timeout 5 bash -c "cat < /dev/null > /dev/tcp/8.8.8.8/3333" \|\| true'` | `Possible crypto miner` (CRITICAL) | PASS (xmrig 06:28:12.134 & port 3333 06:35:54.253, <1s) |
+| 4 | Paynest Crypto Miner Signs (T1496) | `kubectl exec attacker -n attack-test -- bash -c 'exec -a xmrig sleep 10'` (argv[0] only; matches through `proc.exe`) and `kubectl exec attacker -n attack-test -- bash -c 'timeout 5 bash -c "cat < /dev/null > /dev/tcp/8.8.8.8/3333" \|\| true'` | `Possible crypto miner` (CRITICAL) | PASS (xmrig 06:28:12.134 & port 3333 06:35:54.253, <1s) |
+| 4b | Paynest Crypto Miner Signs, copied binary and stratum line (T1496) | `kubectl exec attacker -n attack-test -- bash -c 'cp /bin/sleep /tmp/xmrig && /tmp/xmrig 10'` and `kubectl exec attacker -n attack-test -- bash -c 'sleep 5 --donate-level 1 \|\| true'` and `... -- bash -c 'sh -c \"sleep 5 stratum+tcp://pool.invalid:3333\" \|\| true'` | `Possible crypto miner` (CRITICAL) for each, even though no pool exists | NOT YET RUN LIVE. Replay-tested only. Fill in after a live run. |
 | 5 | Paynest Read Service Account Token (T1552) | `kubectl exec attacker -n attack-test -- cat /var/run/secrets/kubernetes.io/serviceaccount/token` | `Service account token read` (WARNING) | PASS (06:37:04.501 & 06:38:52.121, <1s) |
 | 6 | Paynest Container Escape Attempt (T1611) | `kubectl exec attacker -n attack-test -- bash -c 'cat /proc/1/root/etc/hostname'` and, if `nsenter` is in the image, `kubectl exec attacker -n attack-test -- nsenter --target 1 --mount ls /` | `Possible container escape attempt` (CRITICAL) | PASS (`/proc/1/root` 06:39:02.656 & `nsenter` 06:39:02.773, <1s; privileged pod also blocked at admission) |
 
 Notes:
 
+- **Why the IMDS rule has two halves:** Falco records the destination of a `connect()` only
+  when the call succeeds or is in progress. `curl` and Python use non-blocking sockets, so the
+  address is recorded and the connect half fires. BusyBox `wget` and `nc` use a blocking
+  connect that times out (or is killed) without a result, so the connect half stays silent
+  (this is the "IMDS only fires with curl" note in `dashboard-numbers.md`). The exec half
+  matches any command line that names `169.254.169.254`, whatever the tool. Known gap: code
+  that connects to the address without it appearing on a command line, over a blocking
+  socket that never completes, is not caught by either half.
 - **IMDS (rule 2):** this is Scenario 3. In the demo, run it from a
   pod in `paynest` instead of `attack-test` if you want the full
   story (SSRF in PayNest → Falco alert → auto-response). The Falco
@@ -51,6 +61,21 @@ Notes:
   example `kubectl exec attacker -n attack-test -- ls /tmp` — and
   confirm it raises NO alert. If it does, the rule is too broad.
 - **Clean up when done:** `kubectl delete namespace attack-test`
+
+## Fields to confirm on your Falco version
+
+The rules now use `proc.exe`, `proc.pcmdline` and `proc.aname[2]` as well as the fields used
+before. If Falco refuses to load the rules with an unknown-field error, remove the offending
+field from the `output:` line (output fields do not change what matches). `proc.exe` is the
+one the miner rule's condition depends on; if your version lacks it, the `exec -a` case in
+test 4 will stop alerting and the copied-binary case (4b) still will.
+
+## Interactive shell alerts you did not expect
+
+The shell rule now prints `parent_cmd` and `grandparent`. Earlier runs showed four alerts for
+`sh -c stty -a` with `parent=frontend` that nobody ran. When it happens again, read those two
+fields before tuning: if the parent is a tool you started, add a narrow exception for that
+exact parent command line; if it is not, treat it as a real finding.
 
 ## Check Falco rules loaded
 

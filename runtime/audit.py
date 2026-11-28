@@ -3,17 +3,28 @@ import json
 import sys
 from pathlib import Path
 
+READ_VERBS = {"get", "list", "watch"}
+NAMESPACES = {"paynest", "paynest-demo"}
+# Control-plane identities read Secrets constantly; reporting them is only noise.
+IGNORED_USERS = {"system:kube-controller-manager", "system:apiserver"}
+
 
 def classify(event):
     target = event.get("objectRef", {})
     if (
-        event.get("stage") == "ResponseComplete"
-        and event.get("verb") == "get"
-        and target.get("namespace") == "paynest-demo"
-        and target.get("resource") == "secrets"
-        and event.get("responseStatus", {}).get("code") == 403
+        event.get("stage") != "ResponseComplete"
+        or event.get("verb") not in READ_VERBS
+        or target.get("namespace") not in NAMESPACES
+        or target.get("resource") != "secrets"
     ):
+        return None
+    code = event.get("responseStatus", {}).get("code")
+    if code == 403:
         return "denied-secret-read"
+    if code == 200:
+        if event.get("user", {}).get("username") in IGNORED_USERS:
+            return None
+        return "successful-secret-read"
     return None
 
 

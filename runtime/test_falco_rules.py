@@ -1,16 +1,20 @@
-"""Detection-as-code validation and event replay for falco/custom-rules.yaml."""
+"""Detection-as-code validation and event replay for falco/custom-rules.yaml.
+
+Events in falco-cases.jsonl are run through the real rule conditions (see falco_eval.py),
+so changing a rule changes what this test checks."""
 import json
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from falco_eval import Evaluator  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_PATH = ROOT / "falco" / "custom-rules.yaml"
 CASES_PATH = Path(__file__).with_name("falco-cases.jsonl")
 
 REQUIRED_MITRE = {"T1059", "T1552", "T1543", "T1496", "T1611"}
-MINER_PROCS = {"xmrig", "minerd", "cpuminer"}
-MINER_PORTS = {3333, 4444, 5555, 7777, 14444}
 
 
 def parse_rules_file(path: Path):
@@ -85,46 +89,10 @@ def validate_rules(lists, rules):
     return errors
 
 
-def evaluate_event(event, lists):
-    """Evaluate the 6 PayNest Falco rules against a sanitized event fixture."""
-    if not event.get("container"):
-        return []
-    ns = event.get("k8s.ns.name", "")
-    if ns not in set(lists.get("paynest_namespaces", [])):
-        return []
-
-    evt_type = event.get("evt.type", "")
-    proc = event.get("proc.name", "")
-    cmdline = event.get("proc.cmdline", "")
-    fd_name = event.get("fd.name", "")
-    fd_rip = event.get("fd.rip", "")
-    fd_rport = event.get("fd.rport")
-    shells = set(lists.get("paynest_shells", []))
-
-    matched = []
-    if evt_type == "execve" and proc in shells and event.get("proc.tty", 0) != 0:
-        matched.append("Paynest Shell in Container")
-    if evt_type == "connect" and fd_rip == "169.254.169.254":
-        matched.append("Paynest Contact IMDS")
-    if (
-        evt_type == "open_write"
-        and not fd_name.endswith(".bash_history")
-        and fd_name.startswith(("/etc", "/root", "/usr/bin", "/usr/sbin"))
-    ):
-        matched.append("Paynest Write to System Folders")
-    if (evt_type == "execve" and proc in MINER_PROCS) or (
-        evt_type == "connect" and fd_rport in MINER_PORTS
-    ):
-        matched.append("Paynest Crypto Miner Signs")
-    if evt_type == "open_read" and fd_name.startswith("/var/run/secrets/kubernetes.io/serviceaccount"):
-        matched.append("Paynest Read Service Account Token")
-    if (
-        (evt_type == "execve" and (proc in {"nsenter", "unshare"} or "nsenter" in cmdline))
-        or (evt_type == "open_read" and fd_name.startswith("/proc/1/root"))
-    ):
-        matched.append("Paynest Container Escape Attempt")
-
-    return matched
+def evaluate_event(event, lists, rules):
+    """Run the recorded event through the real condition text of every rule in the file."""
+    ev = Evaluator(lists)
+    return [r["rule"] for r in rules if ev.matches(r["condition"], event)]
 
 
 def main():
@@ -144,7 +112,7 @@ def main():
 
     failures = 0
     for row in rows:
-        actual = evaluate_event(row["event"], lists)
+        actual = evaluate_event(row["event"], lists, rules)
         expected = row["expected"]
         passed = actual == expected
         print(f"{'PASS' if passed else 'FAIL'} {row['case']} -> {actual or 'quiet'}")

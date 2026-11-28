@@ -2,3 +2,11 @@
 {"case":"normal pod read","expected":null,"event":{"stage":"ResponseComplete","verb":"get","objectRef":{"namespace":"paynest-demo","resource":"pods"},"responseStatus":{"code":200}}}
 {"case":"unrelated namespace","expected":null,"event":{"stage":"ResponseComplete","verb":"get","objectRef":{"namespace":"training-other","resource":"secrets"},"responseStatus":{"code":403}}}
 {"case":"request still in progress","expected":null,"event":{"stage":"RequestReceived","verb":"get","objectRef":{"namespace":"paynest-demo","resource":"secrets"}}}
+{"case":"demo secret read succeeded (200)","expected":"successful-secret-read","event":{"stage":"ResponseComplete","verb":"get","user":{"username":"alice"},"objectRef":{"namespace":"paynest-demo","resource":"secrets"},"responseStatus":{"code":200}}}
+{"case":"secret list denied","expected":"denied-secret-read","event":{"stage":"ResponseComplete","verb":"list","objectRef":{"namespace":"paynest-demo","resource":"secrets"},"responseStatus":{"code":403}}}
+{"case":"secret watch succeeded","expected":"successful-secret-read","event":{"stage":"ResponseComplete","verb":"watch","user":{"username":"alice"},"objectRef":{"namespace":"paynest-demo","resource":"secrets"},"responseStatus":{"code":200}}}
+{"case":"secret create is not a read","expected":null,"event":{"stage":"ResponseComplete","verb":"create","objectRef":{"namespace":"paynest-demo","resource":"secrets"},"responseStatus":{"code":201}}}
+{"case":"paynest secret read denied","expected":"denied-secret-read","event":{"stage":"ResponseComplete","verb":"get","objectRef":{"namespace":"paynest","resource":"secrets"},"responseStatus":{"code":403}}}
+{"case":"paynest secret read succeeded","expected":"successful-secret-read","event":{"stage":"ResponseComplete","verb":"get","user":{"username":"alice"},"objectRef":{"namespace":"paynest","resource":"secrets"},"responseStatus":{"code":200}}}
+{"case":"controller-manager read ignored","expected":null,"event":{"stage":"ResponseComplete","verb":"get","user":{"username":"system:kube-controller-manager"},"objectRef":{"namespace":"paynest-demo","resource":"secrets"},"responseStatus":{"code":200}}}
+{"case":"apiserver read ignored","expected":null,"event":{"stage":"ResponseComplete","verb":"list","user":{"username":"system:apiserver"},"objectRef":{"namespace":"paynest","resource":"secrets"},"responseStatus":{"code":200}}}

@@ -1,5 +1,8 @@
 # Automated event-driven response rules for Falco Talon (Section 5.5).
 # Triggers automatically when CRITICAL PayNest Falco rules fire in paynest or paynest-demo.
+# STATUS: NOT TESTED LIVE. Falco Talon is not deployed in the kind cluster, so these rules
+# have never fired. The only proven containment is the manual .\response\respond.ps1.
+# Do not describe containment as automated until a live Talon run is recorded.
 # Local laptop alternative (when Falco Talon is not deployed): .\response\respond.ps1
 
 - action: Label pod as quarantined

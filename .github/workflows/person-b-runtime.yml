@@ -13,6 +13,8 @@ on:
       - "networkpolicies/**"
       - "falco/**"
       - "runtime/**"
+      - "examples/render_demo.py"
+      - "SIGNING-CONTRACT.md"
       - ".github/workflows/person-b-runtime.yml"
   pull_request:
     paths:
@@ -21,6 +23,8 @@ on:
       - "networkpolicies/**"
       - "falco/**"
       - "runtime/**"
+      - "examples/render_demo.py"
+      - "SIGNING-CONTRACT.md"
       - ".github/workflows/person-b-runtime.yml"
   workflow_dispatch:
 
@@ -48,39 +52,21 @@ jobs:
     name: Admission control checks in kind
     needs: detection-as-code
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install kind
+      - name: Install kind, kubectl and Helm (checksum-verified)
         run: |
-          curl -fsSL -o ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Install kubectl
-        run: |
-          curl -fsSLO "https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/kubectl
-          kubectl version --client
-
-      - name: Install Helm
-        run: |
-          curl -fsSL https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz -o helm.tar.gz
-          tar -zxf helm.tar.gz
-          sudo mv linux-amd64/helm /usr/local/bin/helm
-          rm -rf helm.tar.gz linux-amd64
-          helm version
+          source runtime/ci-helpers.sh
+          install_tools
 
       - name: Create kind cluster
         run: |
           kind create cluster --name irongate --wait 120s
-          kubectl cluster-info
           kubectl get nodes
 
       - name: Apply namespaces and NetworkPolicies
@@ -89,24 +75,36 @@ jobs:
           kubectl apply -f networkpolicies/default-deny.yaml
           kubectl apply -f networkpolicies/allow-paynest.yaml
           kubectl apply -f networkpolicies/allow-frontend-egress.yaml
+          kubectl apply -n paynest -f networkpolicies/isolate.yaml
 
       - name: Install Kyverno
         run: |
-          helm repo add kyverno https://kyverno.github.io/kyverno/
-          helm repo update
-          helm install kyverno kyverno/kyverno -n security --create-namespace --wait --timeout 5m
+          source runtime/ci-helpers.sh
+          install_kyverno
           kubectl get pods -n security
-          kubectl get validatingpolicies
 
-      - name: Apply Person B policies
+      - name: Apply Person B policies and wait until they are ready
         run: |
-          kubectl apply -f policies/block-latest.yaml
-          kubectl apply -f policies/block-privileged.yaml
-          sleep 20
-          kubectl get validatingpolicies
+          source runtime/ci-helpers.sh
+          apply_retry policies/block-latest.yaml
+          apply_retry policies/block-privileged.yaml
+          wait_ready validatingpolicy block-latest-tag
+          wait_ready validatingpolicy block-privileged
+          # The webhook can lag the status flag by a moment: prove a denial, not a flag.
+          for i in $(seq 1 20); do
+            kubectl apply --dry-run=server -f - <<'EOF' >/dev/null 2>&1 && sleep 3 || break
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: warmup, namespace: paynest}
+          spec:
+            containers: [{name: t, image: "nginx:latest"}]
+          EOF
+          done
 
-      - name: Check 1 — nginx:latest must be denied
+      - name: Check 1 - nginx:latest is denied by block-latest-tag (not by Pod Security)
         run: |
+          source runtime/ci-helpers.sh
+          # Pod Security would pass this spec, so only Kyverno can be the one denying it.
           cat <<'EOF' > /tmp/test-latest.yaml
           apiVersion: v1
           kind: Pod
@@ -127,15 +125,15 @@ jobs:
                   capabilities:
                     drop: ["ALL"]
           EOF
-          if kubectl apply -f /tmp/test-latest.yaml; then
-            echo "::error::FAIL: nginx:latest was admitted, block-latest did not deny it"
-            exit 1
-          else
-            echo "PASS: nginx:latest was denied as expected"
-          fi
+          expect_denied /tmp/test-latest.yaml "Images must not use the :latest tag"
 
-      - name: Check 2 — privileged pod must be denied
+      - name: Check 2 - privileged pod is denied by Kyverno block-privileged
         run: |
+          source runtime/ci-helpers.sh
+          # Pod Security "restricted" would reject this pod on its own and hide a broken
+          # Kyverno policy. Relax it for this one check so Kyverno is the only gate left.
+          kubectl label ns paynest pod-security.kubernetes.io/enforce=privileged --overwrite
+          trap 'kubectl label ns paynest pod-security.kubernetes.io/enforce=restricted --overwrite' EXIT
           cat <<'EOF' > /tmp/test-privileged.yaml
           apiVersion: v1
           kind: Pod
@@ -148,16 +146,29 @@ jobs:
                 image: nginxinc/nginx-unprivileged:1.27-alpine
                 securityContext:
                   privileged: true
-                  allowPrivilegeEscalation: true
           EOF
-          if kubectl apply -f /tmp/test-privileged.yaml; then
-            echo "::error::FAIL: privileged pod was admitted"
-            exit 1
-          else
-            echo "PASS: privileged pod was denied as expected"
-          fi
+          expect_denied /tmp/test-privileged.yaml "Privileged containers are not allowed"
+          cat <<'EOF' > /tmp/test-hostpid.yaml
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: test-hostpid
+            namespace: paynest
+          spec:
+            hostPID: true
+            containers:
+              - name: test
+                image: nginxinc/nginx-unprivileged:1.27-alpine
+          EOF
+          expect_denied /tmp/test-hostpid.yaml "hostPID is not allowed"
 
-      - name: Check 3 — a good pod must be created and run
+      - name: Check 3 - Pod Security restricted still blocks a privileged pod on its own
+        run: |
+          source runtime/ci-helpers.sh
+          kubectl get ns paynest -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}' | grep -x restricted
+          expect_denied /tmp/test-privileged.yaml "violates PodSecurity"
+
+      - name: Check 4 - a good pod must be created and run
         run: |
           cat <<'EOF' > /tmp/test-good.yaml
           apiVersion: v1
@@ -181,9 +192,92 @@ jobs:
           EOF
           kubectl apply -f /tmp/test-good.yaml
           kubectl wait --for=condition=Ready pod/test-good -n paynest --timeout 120s
-          kubectl get pod test-good -n paynest
           echo "PASS: good pod runs"
 
       - name: Delete kind cluster
         if: always()
         run: kind delete cluster --name irongate || true
+
+  signature-gate:
+    name: Signed-image gate (Scenario 2) in kind
+    needs: detection-as-code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install kind, kubectl and Helm (checksum-verified)
+        run: |
+          source runtime/ci-helpers.sh
+          install_tools
+
+      - name: Create kind cluster and install Kyverno
+        run: |
+          source runtime/ci-helpers.sh
+          kind create cluster --name irongate-sig --wait 120s
+          install_kyverno
+
+      - name: Read the contract (single source of truth)
+        id: contract
+        run: |
+          set -euo pipefail
+          image="$(grep -oP 'Verified release digest:\*\* `\K[^`]+' SIGNING-CONTRACT.md)"
+          repo="$(grep -oP 'https://github.com/\K[^/]+/[^/]+(?=/\.github/workflows/release\.yml)' SIGNING-CONTRACT.md | head -1)"
+          [[ "$image" =~ @sha256:[0-9a-f]{64}$ ]]
+          [[ -n "$repo" ]]
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "Contract image: $image / signer repo: $repo"
+
+      - name: Positive control - the signed release digest is admitted
+        env:
+          IMAGE: ${{ steps.contract.outputs.image }}
+          REPO: ${{ steps.contract.outputs.repo }}
+        run: |
+          source runtime/ci-helpers.sh
+          python3 examples/render_demo.py "$REPO" "$IMAGE"
+          kubectl apply -f local-output/namespace.yaml
+          apply_retry local-output/admission.yaml
+          wait_ready imagevalidatingpolicy irongate-proof
+          # Server-side dry run: the admission webhooks run, nothing is scheduled or pulled.
+          # If this fails with a registry error, the GHCR package is private: make it public.
+          kubectl apply --dry-run=server -f local-output/check-pod.yaml
+          echo "PASS: signed digest admitted"
+
+      - name: Tag-only image is denied by irongate-source
+        env:
+          REPO: ${{ steps.contract.outputs.repo }}
+        run: |
+          source runtime/ci-helpers.sh
+          lower="$(tr 'A-Z' 'a-z' <<<"$REPO")"
+          sed "s#image: .*#image: ghcr.io/${lower%%/*}/${lower##*/}:latest#" local-output/check-pod.yaml > /tmp/tag-only.yaml
+          sed -i 's/name: proof-check/name: proof-check-tag/' /tmp/tag-only.yaml
+          expect_denied /tmp/tag-only.yaml "immutable SHA-256 digest||digest" --dry-run=server
+
+      - name: Unsigned digest is denied by irongate-proof
+        env:
+          REPO: ${{ steps.contract.outputs.repo }}
+        run: |
+          source runtime/ci-helpers.sh
+          # Point the approved repository at a public image that was NOT signed by the release
+          # workflow. It passes the digest rule and must then fail signature verification.
+          docker pull -q busybox:1.37 >/dev/null
+          unsigned="$(docker inspect --format '{{index .RepoDigests 0}}' busybox:1.37)"
+          # Docker prints official images without their registry prefix: add it back.
+          [[ "$unsigned" == */* ]] || unsigned="docker.io/library/$unsigned"
+          [[ "$unsigned" =~ ^[a-z0-9./-]+@sha256:[0-9a-f]{64}$ ]]
+          kubectl delete -f local-output/admission.yaml --ignore-not-found
+          python3 examples/render_demo.py "$REPO" "$unsigned"
+          apply_retry local-output/admission.yaml
+          wait_ready imagevalidatingpolicy irongate-proof
+          # Give kube-apiserver's ValidatingAdmissionPolicy cache a moment to sync the recreated irongate-source.
+          sleep 5
+          sed -i 's/name: proof-check/name: proof-check-unsigned/' local-output/check-pod.yaml
+          expect_denied local-output/check-pod.yaml "must sign this image||no signatures||no matching signatures||failed to verify" --dry-run=server
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name irongate-sig || true

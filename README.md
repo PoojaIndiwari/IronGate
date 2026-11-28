@@ -9,7 +9,7 @@ IronGate secures the PayNest application from build to deployment. It scans code
   - **Admission control:** Pod Security `restricted` (`cluster/namespaces.yaml`), default-deny & allowlist NetworkPolicies (`networkpolicies/`, `runtime/demo-network.yaml`), Kyverno `ValidatingPolicy` (`policies/block-latest.yaml`, `policies/block-privileged.yaml`), and keyless `ImageValidatingPolicy` (`runtime/proof-policy.yaml.in`).
   - **Runtime detection:** 6 MITRE ATT&CK-mapped Falco eBPF rules (`falco/custom-rules.yaml`) covering `paynest`, `paynest-demo`, and `attack-test`.
   - **Detection-as-code & CI:** Kubernetes audit replay (`runtime/audit.py`), Falco rule validation & event replay (`runtime/test_falco_rules.py`), PR admission checks in kind (`.github/workflows/person-b-runtime.yml`), and nightly detection/posture scans (`.github/workflows/person-b-nightly.yml`).
-  - **Automated response:** Falco Talon event-driven quarantine/termination rules (`response/falco-talon-rules.yaml`) plus local containment script (`response/respond.ps1`) and quarantine policy (`networkpolicies/isolate.yaml`).
+  - **Response:** manual containment script (`response/respond.ps1`, live-proven) and quarantine policy (`networkpolicies/isolate.yaml`). Falco Talon rules (`response/falco-talon-rules.yaml`) are drafted but not tested live, so containment is not yet automated.
   - **Posture & metrics:** Kubescape baseline scan, Grafana security dashboard (`monitoring/grafana-dashboard.json`), and live measured metrics (`dashboard-numbers.md`).
 
 > **Note on cloud posture (Prowler / CloudTrail):** Prowler and AWS CloudTrail are intentionally skipped in this laptop/kind build because no AWS account is provisioned.
