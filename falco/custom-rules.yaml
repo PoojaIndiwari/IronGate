@@ -1,4 +1,5 @@
-# 6 custom Falco rules for PayNest.
+# 6 custom Falco rules for PayNest. The CI replay (runtime/test_falco_rules.py) evaluates
+# the conditions in THIS file, so editing a condition here changes what the tests check.
 # Uses macros that ship with Falco's default rules
 # (spawned_process, container, open_write, open_read).
 # Load it through Helm, not with kubectl apply. Always repeat the driver setting,
@@ -22,19 +23,26 @@
     and k8s.ns.name in (paynest_namespaces)
   output: >
     Shell in PayNest pod (user=%user.name ns=%k8s.ns.name pod=%k8s.pod.name
-    shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline)
+    shell=%proc.name parent=%proc.pname parent_cmd=%proc.pcmdline
+    grandparent=%proc.aname[2] cmdline=%proc.cmdline)
   priority: WARNING
   tags: [container, shell, mitre_execution, T1059]
 
 - rule: Paynest Contact IMDS
-  desc: A pod connected to the cloud metadata address 169.254.169.254 — Scenario 3 (Credential Access, MITRE T1552)
+  desc: >
+    A pod reached for the cloud metadata address 169.254.169.254 (Scenario 3, Credential
+    Access, MITRE T1552). Two halves, because no single signal works for every tool.
+    The connect half sees apps and tools that use non-blocking sockets (curl, Python
+    requests); Falco only records the destination for a connect that succeeds or is in
+    progress, so a blocking connect that times out (BusyBox wget, nc) never matches it.
+    The exec half matches any command line that names the address, whatever the tool.
   condition: >
-    evt.type = connect and container
-    and fd.rip = "169.254.169.254"
-    and k8s.ns.name in (paynest_namespaces)
+    container and k8s.ns.name in (paynest_namespaces)
+    and ((evt.type = connect and fd.rip = "169.254.169.254")
+    or (spawned_process and proc.cmdline contains "169.254.169.254"))
   output: >
     Connection to IMDS 169.254.169.254 (user=%user.name ns=%k8s.ns.name
-    pod=%k8s.pod.name cmdline=%proc.cmdline ip=%fd.rip port=%fd.rport)
+    pod=%k8s.pod.name proc=%proc.name cmdline=%proc.cmdline ip=%fd.rip port=%fd.rport)
   priority: CRITICAL
   tags: [container, network, mitre_credential_access, T1552]
 
@@ -52,15 +60,24 @@
   priority: WARNING
   tags: [container, filesystem, mitre_persistence, T1543]
 
+- list: paynest_miner_procs
+  items: [xmrig, minerd, cpuminer]
+
 - rule: Paynest Crypto Miner Signs
-  desc: A miner process ran, or a pod connected to a common mining-pool port (Impact, MITRE T1496)
+  desc: >
+    A miner ran, or a pod reached a common mining-pool port (Impact, MITRE T1496).
+    Three signals: the process or argv[0] name, a stratum URL or miner flag on the command
+    line, and a connect to a pool port. The command-line signals fire even when the pool is
+    unreachable, because the port signal only fires on a connect that succeeds or is in progress.
   condition: >
     container and k8s.ns.name in (paynest_namespaces)
-    and ((spawned_process and proc.name in (xmrig, minerd, cpuminer))
+    and ((spawned_process and (proc.name in (paynest_miner_procs) or proc.exe in (paynest_miner_procs)))
+    or (spawned_process and (proc.cmdline contains "stratum+tcp://"
+    or proc.cmdline contains "stratum+ssl://" or proc.cmdline contains "--donate-level"))
     or (evt.type = connect and fd.rport in (3333, 4444, 5555, 7777, 14444)))
   output: >
     Possible crypto miner (user=%user.name ns=%k8s.ns.name pod=%k8s.pod.name
-    proc=%proc.name cmdline=%proc.cmdline port=%fd.rport)
+    proc=%proc.name exe=%proc.exe cmdline=%proc.cmdline port=%fd.rport)
   priority: CRITICAL
   tags: [container, network, mitre_impact, T1496]
 

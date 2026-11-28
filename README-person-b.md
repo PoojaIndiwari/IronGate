@@ -1,4 +1,4 @@
-# IronGate — Person B starter files (2-day, laptop only)
+# IronGate — Part B
 
 Copy this whole folder into VS Code as `irongate-person-b`.
 It matches the 2-day guide exactly: same file names, same order.
@@ -50,21 +50,19 @@ kubectl get imagevalidatingpolicies
   `Out-File -Encoding utf8` instead — `response/respond.ps1`
   already does this for the evidence it saves.
 
-## Replace these 3 things first
+## Signing: keyless, by digest (no keys to replace)
 
-1. `YOUR-REGISTRY` — in `policies/verify-signature.yaml`,
-   `policies/allowed-registry.yaml` and `app/paynest-test.yaml`.
-   Use the registry from `SIGNING-CONTRACT.md`.
-2. `PASTE-THE-WHOLE-CONTENTS-OF-cosign.pub-HERE` — in
-   `policies/verify-signature.yaml`. Public key only. Never put
-   `cosign.key` (the private key) in this repo.
-3. The image tag in `app/paynest-test.yaml` — use the tag you signed,
-   for example `:test1`. Never `:latest`.
+Signing is keyless and happens in `.github/workflows/release.yml`. There is no `cosign.key`,
+no `cosign.pub`, and no `YOUR-REGISTRY` placeholder to fill in. The cluster trusts one
+identity, written down in `SIGNING-CONTRACT.md`:
 
-Signing needs a registry: Cosign signs an image that is pushed to a
-registry. For the laptop test, push your test image to a registry you
-can reach from kind (for example a local registry, or the registry
-Person A uses), then sign that exact image name + tag.
+- image by immutable digest: `ghcr.io/<owner>/irongate@sha256:<64 hex>`
+- signer: the GitHub workflow identity of `release.yml` on `refs/heads/main`
+- required: signature + SLSA v1 provenance + SPDX SBOM
+
+`examples/render_demo.py OWNER/REPO IMAGE@sha256:...` renders `runtime/proof-policy.yaml.in`
+and the manifests into `local-output/` (git-ignored). Apply `local-output/admission.yaml`
+to enforce the contract in `paynest-demo`.
 
 ## Apply in this order
 
@@ -89,25 +87,24 @@ If a pod can still talk after `default-deny` is applied, check
 
 Test first: a normal pod runs in paynest, a privileged pod is blocked.
 
-Day 1 afternoon (Kyverno must be installed first — see the guide):
+Day 1 afternoon (Kyverno must be installed first, see the guide):
 ```
 kubectl apply -f policies/block-latest.yaml
 kubectl apply -f policies/block-privileged.yaml
-kubectl apply -f policies/allowed-registry.yaml
 ```
-Test: `:latest` = blocked (see the guide for the test-latest.yaml
-test — it must be denied by Kyverno, not just by Pod Security).
-Do NOT apply `policies/verify-signature.yaml` yet — it needs a
-Cosign key and a signed image first (see the warning at the top
-of that file). Apply it only after you have signed your test
-image, then run:
+Test: `:latest` = blocked by `block-latest-tag` (the message must say so, not just
+"violates PodSecurity").
+
+The signature gate is separate. Render it from the contract and apply it:
 ```
-kubectl apply -f policies/verify-signature.yaml
-kubectl apply -f app/paynest-test.yaml
+python3 examples/render_demo.py OWNER/REPO ghcr.io/owner/irongate@sha256:<digest>
+kubectl apply -f local-output/namespace.yaml
+kubectl apply -f local-output/admission.yaml
 ```
-Test: unsigned = blocked, signed = runs, `:latest` = blocked.
-Save the unsigned-rejection log in `evidence\` — that is Scenario 2.
-Do not commit `evidence\` (see above).
+Test: signed digest = admitted, tag-only = denied by `irongate-source`, unsigned digest =
+denied by `irongate-proof`. The `signature-gate` job in
+`.github/workflows/person-b-runtime.yml` runs all three on every change. Save the
+unsigned-rejection log in `evidence\` (that is Scenario 2) and do not commit `evidence\`.
 
 Day 1 evening (Falco must be installed first — see the guide):
 Load `falco/custom-rules.yaml` through Helm customRules (see the
@@ -179,14 +176,25 @@ If traffic still flows, the label was not removed.
 
 ## CI for this half
 
-`.github/workflows/person-b-runtime.yml` runs on push / pull
-request (and on demand). On `ubuntu-latest` it installs kind,
-kubectl and Helm, creates a kind cluster `irongate`, installs
-Kyverno, applies `policies/block-latest.yaml` and
-`policies/block-privileged.yaml`, then proves rejection:
-unsigned / `:latest` pod denied, privileged pod denied, and a
-good pod (`nginxinc/nginx-unprivileged:1.27-alpine`, safe spec)
-is created and becomes Ready. No secrets, no registry access.
+`.github/workflows/person-b-runtime.yml` runs on push / pull request (and on demand):
+
+1. `detection-as-code`: replays the Kubernetes audit fixtures and replays the Falco fixtures
+   through the real rule conditions in `falco/custom-rules.yaml` (`runtime/falco_eval.py`).
+   Changing a rule changes what is tested.
+2. `runtime-checks` (kind + Kyverno): `:latest` is denied by `block-latest-tag`; a privileged
+   pod and a `hostPID` pod are denied by `block-privileged` with Pod Security relaxed for that
+   step, so Kyverno is the only gate left; Pod Security `restricted` is then shown to block the
+   same pod on its own; a compliant pod runs. Every denial must carry the expected message.
+3. `signature-gate` (kind + Kyverno, needs internet): the signed release digest from
+   `SIGNING-CONTRACT.md` is admitted (server-side dry run), a tag-only image is denied, and an
+   unsigned digest is denied by signature verification.
+
+kind, kubectl and Helm are downloaded at pinned versions and checked against the checksum
+files their projects publish (`runtime/ci-helpers.sh`). Kyverno is installed from the newest
+chart on the 1.20 line and the chart version is written to the run summary.
+
+Limits: the Falco replay proves the *rule logic* against recorded events. It cannot prove that a
+real Falco build supplies a field. That is what `falco/test-rules.md` on a live cluster is for.
 
 ## Tables for your README / demo
 
@@ -204,10 +212,10 @@ Coverage table — filled from live run (`evidence/falco-attacks.txt`, `evidence
 | Attack | Rule | Alert fired? | Time to detect |
 |---|---|---|---|
 | 1 Reverse shell | Shell in container (T1059) | Yes | < 1s (06:26:17.958) |
-| 2 Crypto miner | Crypto miner signs (T1496) | Yes (`xmrig` + port 3333) | < 1s (06:28:12.134) |
+| 2 Crypto miner | Crypto miner signs (T1496) | Yes (`xmrig` + port 3333; stratum command line added, re-run pending) | < 1s (06:28:12.134) |
 | 3 Container escape | Blocked by admission (in `paynest`) + Container Escape Attempt (Falco T1611) | Blocked at admission; Falco escape rule also fired separately | < 1s (06:39:02.656) |
 | 4 RBAC / token abuse | Service account token read (T1552) + audit replay (`runtime/audit.py`) | Yes | < 1s (06:37:04.501) |
-| 5 IMDS theft | Contact IMDS (T1552) | Yes (`attack-test` + `paynest`) | < 1s (06:37:10.355 / 07:01:24.390) |
+| 5 IMDS theft | Contact IMDS (T1552) | Yes with curl (`attack-test` + `paynest`); wget/nc/bash covered by the exec half, live re-run pending | < 1s (06:37:10.355 / 07:01:24.390) |
 
 5 numbers for the dashboard — see `dashboard-numbers.md` and `monitoring/grafana-dashboard.json`:
 | Number | Value |
@@ -220,11 +228,11 @@ Coverage table — filled from live run (`evidence/falco-attacks.txt`, `evidence
 
 ## If something breaks
 
-- Kyverno blocks your good image too: the image name/tag must match
-  the contract exactly, and the signature must be for that exact tag.
+- Kyverno blocks your good image too: the image must be the exact digest from
+  the contract and the policy must be rendered with the same OWNER/REPO.
 - Kyverno says a policy is deprecated / not enforced: you are
   looking at an old legacy-format file. Only the CEL files in
-  `policies/` in this folder work on Kyverno v1.20. Delete any
+  `policies/` and the policy rendered from `runtime/proof-policy.yaml.in` work on Kyverno v1.20. Delete any
   old legacy policy and apply the matching file from this folder.
 - Falco pods crash-loop: try `driver.kind=ebpf` (see the guide).
   Time-box driver problems to 30 minutes.
@@ -235,4 +243,3 @@ Coverage table — filled from live run (`evidence/falco-attacks.txt`, `evidence
 - Quarantined pod can still talk: check the `app` label was
   removed (`kubectl get pod <name> -n paynest --show-labels`).
 - Prowler is skipped on purpose: laptop-only build, no AWS account.
-  Write that one line in your README.

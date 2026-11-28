@@ -1,4 +1,4 @@
-# Day 1 afternoon — Policy 3: no privileged containers, hostNetwork, hostPath.
+# Day 1 afternoon — Policy 3: no privileged containers, hostNetwork, hostPID, hostIPC, hostPath.
 # Apply: kubectl apply -f policies/block-privileged.yaml
 # Scoped to namespace paynest only.
 # Kyverno v1.20 format: ValidatingPolicy (CEL).
@@ -43,6 +43,12 @@ spec:
     - message: "hostNetwork is not allowed."
       expression: >-
         !has(object.spec.hostNetwork) || object.spec.hostNetwork == false
+    - message: "hostPID is not allowed."
+      expression: >-
+        !has(object.spec.hostPID) || object.spec.hostPID == false
+    - message: "hostIPC is not allowed."
+      expression: >-
+        !has(object.spec.hostIPC) || object.spec.hostIPC == false
     - message: "hostPath volumes are not allowed."
       expression: >-
         !has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath))

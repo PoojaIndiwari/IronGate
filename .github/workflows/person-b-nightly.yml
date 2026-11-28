@@ -30,13 +30,27 @@ jobs:
           python3 runtime/audit.py | tee audit-results.txt
           python3 runtime/test_falco_rules.py | tee falco-results.txt
 
-      - name: Install Kubescape
+      - name: Install Kubescape (pinned release, checksum-verified)
+        env:
+          KUBESCAPE_VERSION: v3.0.41
         run: |
-          curl -fsSL https://raw.githubusercontent.com/kubescape/kubescape/master/install.sh | /bin/bash
-          echo "$HOME/.kubescape/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          # Pinned release + checksum file instead of piping an install script from master.
+          base="https://github.com/kubescape/kubescape/releases/download/${KUBESCAPE_VERSION}"
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/kubescape.tar.gz" "$base/kubescape-ubuntu-latest.tar.gz"
+          curl -fsSL -o "$tmp/checksums.sha256" "$base/checksums.sha256"
+          expected="$(grep -E ' \*?kubescape-ubuntu-latest\.tar\.gz$' "$tmp/checksums.sha256" | cut -d' ' -f1)"
+          [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::No checksum entry for kubescape-ubuntu-latest.tar.gz"; exit 1; }
+          echo "$expected  $tmp/kubescape.tar.gz" | sha256sum -c -
+          tar -xzf "$tmp/kubescape.tar.gz" -C "$tmp"
+          bin="$(find "$tmp" -type f -name 'kubescape*' ! -name '*.tar.gz' ! -name '*.sha256' | head -1)"
+          sudo install -m 0755 "$bin" /usr/local/bin/kubescape
+          kubescape version
 
       - name: Run Kubescape posture scan on manifests
         run: |
+          # Report-only on purpose: the table below is evidence, not a gate.
           kubescape scan k8s/ networkpolicies/ cluster/ --format pretty-printer || true
 
       - name: Publish nightly coverage summary
