@@ -46,16 +46,21 @@ install_kyverno() {
   echo "- Kyverno chart: \`${chart}\`" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 }
 
-# wait_ready KIND NAME [SECONDS]: poll .status.ready instead of sleeping and hoping.
+# wait_ready KIND NAME [SECONDS]: poll readiness instead of sleeping and hoping.
+# Kyverno policies.kyverno.io/v1 reports .status.conditionStatus.ready (older CRDs use .status.ready).
 wait_ready() {
-  local kind="$1" name="$2" limit="${3:-120}" waited=0
-  until [[ "$(kubectl get "$kind" "$name" -o jsonpath='{.status.ready}' 2>/dev/null)" == "true" ]]; do
+  local kind="$1" name="$2" limit="${3:-120}" waited=0 ready=""
+  while :; do
+    ready="$(kubectl get "$kind" "$name" -o jsonpath='{.status.conditionStatus.ready}{.status.ready}' 2>/dev/null || true)"
+    if [[ "$ready" == *true* ]]; then
+      echo "$kind/$name is ready"
+      return 0
+    fi
     if (( waited >= limit )); then
       echo "::error::$kind/$name was not ready after ${limit}s"; kubectl get "$kind" "$name" -o yaml || true; return 1
     fi
     sleep 3; waited=$((waited + 3))
   done
-  echo "$kind/$name is ready"
 }
 
 # expect_denied FILE EXPECTED_TEXT [kubectl apply args...]
